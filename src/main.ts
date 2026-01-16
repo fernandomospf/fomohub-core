@@ -11,6 +11,7 @@ async function bootstrap() {
       'http://localhost:3000',
       'http://localhost:5173',
       'https://fomo-core.onrender.com',
+      'https://www.fomohub.com.br',
       'https://fomo.app'
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
