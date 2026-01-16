@@ -7,20 +7,38 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.enableCors({
-    origin: [
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'https://fomo-core.onrender.com',
-      'https://www.fomohub.com.br',
-      'https://fomo.app'
-    ],
+    origin: (origin, callback) => {
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (
+        origin.startsWith('http://localhost:') ||
+        origin.startsWith('http://127.0.0.1:')
+      ) {
+        return callback(null, true);
+      }
+
+      if (origin.endsWith('.vercel.app')) {
+        return callback(null, true);
+      }
+
+      if (
+        origin === 'https://fomohub.com.br' ||
+        origin === 'https://www.fomohub.com.br'
+      ) {
+        return callback(null, true);
+      }
+
+      console.error('❌ CORS blocked origin:', origin);
+      return callback(new Error('Not allowed by CORS'), false);
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   });
 
   await app.listen(PORT);
-
   console.log(`🚀 API running on port ${PORT}`);
 }
 
