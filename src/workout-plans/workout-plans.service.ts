@@ -1,5 +1,5 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { ProfileFitnessDataDto } from './dto/profile-fitness-data.dto';
+
 
 @Injectable()
 export class WorkoutPlansService {
@@ -70,6 +70,15 @@ export class WorkoutPlansService {
       .select('workout_plan_id')
       .eq('user_id', userId);
 
+    const { data: userFavorites } = await supabase
+      .from('workout_plan_favorites')
+      .select('workout_plan_id')
+      .eq('user_id', userId);
+
+    const favoriteSet = new Set(
+      (userFavorites ?? []).map(fav => fav.workout_plan_id)
+    );
+
     const likedSet = new Set(
       (userLikes ?? []).map(like => like.workout_plan_id)
     );
@@ -103,6 +112,7 @@ export class WorkoutPlansService {
         ...plan,
         calories,
         is_liked: likedSet.has(plan.id),
+        is_favorited: favoriteSet.has(plan.id),
       };
     });
   }
@@ -170,7 +180,7 @@ export class WorkoutPlansService {
       calories,
       estimated_duration_minutes: Math.round(durationMinutes),
       workout_exercises: planExercises,
-      is_favorite: true,
+      is_favorited: true,
     };
   });
 }
@@ -251,10 +261,20 @@ export class WorkoutPlansService {
       .select('workout_plan_id')
       .eq('user_id', userId);
 
+    const { data: favorites, error: favError } = await supabase
+      .from('workout_plan_favorites')
+      .select('workout_plan_id')
+      .eq('user_id', userId);
+
     if (likesError) throw likesError;
+    if (favError) throw favError;
 
     const likedSet = new Set(
       (likes ?? []).map(l => l.workout_plan_id),
+    );
+
+    const favoriteSet = new Set(
+      (favorites ?? []).map(f => f.workout_plan_id),
     );
 
     const { data: plans, error: plansError } = await supabase
@@ -301,6 +321,7 @@ export class WorkoutPlansService {
         estimated_duration_minutes: Math.round(durationMinutes),
         workout_exercises: planExercises,
         is_liked: likedSet.has(plan.id),
+        is_favorited: favoriteSet.has(plan.id),
       };
     });
   }
