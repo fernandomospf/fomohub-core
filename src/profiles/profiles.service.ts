@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AuthenticateRequest } from 'reqGuard';
 import { OnboardingDto } from 'src/dto/onboarding.dto';
+import { UpdateMeasurementsDto } from 'src/dto/updateMeasurements.dto';
 
 @Injectable()
 export class ProfilesService {
@@ -34,7 +35,6 @@ export class ProfilesService {
   async completeOnboarding(req: AuthenticateRequest, dto: OnboardingDto) {
     const supabase = req.supabase;
     const userId = req.user.id;
-
     const { error: fitnessError } = await supabase
       .from('profile_fitness_data')
       .upsert({
@@ -43,14 +43,20 @@ export class ProfilesService {
         birth_date: dto.fitnessData.birthDate,
         gender: dto.fitnessData.gender,
         height_cm: dto.fitnessData.heightCm,
-        weight_kg: dto.fitnessData.weightKg,
         goal: dto.fitnessData.goal,
         experience_level: dto.fitnessData.experienceLevel,
         training_frequency: dto.fitnessData.trainingFrequency,
         updated_at: new Date()
       });
 
-    if (fitnessError) throw fitnessError;
+    const { error: bodyError } = await supabase
+      .from('body_measurements')
+      .upsert({
+        user_id: userId,
+        weight_kg: dto.fitnessData.weightKg,
+      })
+
+    if (fitnessError || bodyError) throw fitnessError || bodyError;
 
     const { error: parqError } = await supabase
       .from('profile_parq_answers')
@@ -87,6 +93,76 @@ export class ProfilesService {
       .eq('id', userId);
 
     if (profileError) throw profileError;
+
+    return { success: true };
+  }
+
+  async profileData(req: AuthenticateRequest) {
+    const supabase = req.supabase;
+    const userId = req.user.id;
+
+    const { data: measurements, error: weightError } = await supabase
+      .from('body_measurements')
+      .select('*')
+      .eq('user_id', userId)
+      .order('measured_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (weightError) throw weightError;
+
+    const { data: fitnessData, error: fitnessError } = await supabase
+      .from('profile_fitness_data')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (fitnessError) throw fitnessError;
+
+    return {
+      ...fitnessData,
+      measurements: measurements,
+    };
+  }
+
+  async addMeasurement(req: AuthenticateRequest, dto: UpdateMeasurementsDto) {
+    const supabase = req.supabase;
+    const userId = req.user.id;
+
+    const { data: last } = await supabase
+      .from('body_measurements')
+      .select('*')
+      .eq('user_id', userId)
+      .order('measured_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const payload = {
+      user_id: userId,
+      weight_kg: dto.weight_kg ?? last?.weight_kg,
+      chest_cm: dto.chest_cm ?? last?.chest_cm,
+      biceps_right_cm: dto.biceps_right_cm ?? last?.biceps_right_cm,
+      biceps_left_cm: dto.biceps_left_cm ?? last?.biceps_left_cm,
+      waist_abdomen_cm: dto.waist_abdomen_cm ?? last?.waist_abdomen_cm,
+      thigh_right_cm: dto.thigh_right_cm ?? last?.thigh_right_cm,
+      thigh_left_cm: dto.thigh_left_cm ?? last?.thigh_left_cm,
+      calf_right_cm: dto.calf_right_cm ?? last?.calf_right_cm,
+      calf_left_cm: dto.calf_left_cm ?? last?.calf_left_cm,
+      forearm_right_cm: dto.forearm_right_cm ?? last?.forearm_right_cm,
+      forearm_left_cm: dto.forearm_left_cm ?? last?.forearm_left_cm,
+      hip_cm: dto.hip_cm ?? last?.hip_cm,
+      measured_at: new Date().toISOString(),
+    };
+
+    Object.keys(payload).forEach(
+      (key) => payload[key] === undefined && delete payload[key]
+    );
+
+    const { error } = await supabase
+      .from('body_measurements')
+      .insert(payload);
+
+    if (error) throw error;
 
     return { success: true };
   }

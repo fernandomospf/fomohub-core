@@ -1,8 +1,9 @@
-import { Body, Controller, Get, HttpStatus, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpStatus, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { SupabaseAuthGuard } from '../auth/auth.guard';
 import { ProfilesService } from './profiles.service';
 import { OnboardingDto } from 'src/dto/onboarding.dto';
 import * as express from 'express';
+import { UpdateMeasurementsDto } from 'src/dto/updateMeasurements.dto';
 
 @Controller('profiles')
 @UseGuards(SupabaseAuthGuard)
@@ -23,5 +24,23 @@ export class ProfilesController {
     return res.status(HttpStatus.CREATED).json({
       success: "Onboarding completed successfully"
     });
+  }
+
+  @Get('profile/info')
+  async profileData(@Req() req) {
+    return this.profilesService.profileData(req);
+  }
+
+  @Patch('update/measurements')
+  async updateMeasurements(
+    @Req() req,
+    @Body() dto: UpdateMeasurementsDto,
+  ) {
+    await this.profilesService.addMeasurement(req, dto);
+
+    return {
+      success: true,
+      message: 'Medidas atualizadas com sucesso',
+    };
   }
 }

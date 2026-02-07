@@ -1,4 +1,8 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { StartWorkoutSessionDto } from './dto/start-workout-session.dto';
+import { AuthenticateRequest } from 'reqGuard';
+import { AddExerciseToSessionDto } from './dto/addExerciseToSession.dto';
+import { AddSetToSessionDto } from './dto/addSetToSession.dto';
 
 
 @Injectable()
@@ -46,7 +50,6 @@ export class WorkoutPlansService {
     const userId = req.user.id;
 
     const userFitnessData = await this.getUserFitnessData(req, userId);
-    // Removed 500 throw for missing fitness data
 
     const { data: plans, error } = await supabase
       .from('workout_plans')
@@ -114,7 +117,6 @@ export class WorkoutPlansService {
     const userId = req.user.id;
 
     const userFitnessData = await this.getUserFitnessData(req, userId);
-    // Removed 500 throw for missing fitness data
 
     const { data: favorites, error: favError } = await supabase
       .from('workout_plan_favorites')
@@ -190,7 +192,6 @@ export class WorkoutPlansService {
     const userId = req.user.id;
 
     const userFitnessData = await this.getUserFitnessData(req, userId);
-    // Removed 500 throw for missing fitness data
 
     const { data: likes, error: likesError } = await supabase
       .from('workout_plan_likes')
@@ -260,7 +261,6 @@ export class WorkoutPlansService {
     const { id: userId } = user;
 
     const userFitnessData = await this.getUserFitnessData(req, userId);
-    // Removed 500 throw for missing fitness data
 
     const { data: likes, error: likesError } = await supabase
       .from('workout_plan_likes')
@@ -443,20 +443,32 @@ export class WorkoutPlansService {
       is_public,
     } = data[0];
 
-    const userFitnessData = await this.getUserFitnessData(req, userId);
-    // Removed 500 throw for missing fitness data
+    const { data: lastMeasurement, error: measurementError } =
+      await supabase
+        .from('body_measurements')
+        .select('weight_kg')
+        .eq('user_id', userId)
+        .order('measured_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (measurementError) {
+      throw new InternalServerErrorException(measurementError.message);
+    }
+
+    const weightKg = lastMeasurement?.weight_kg ?? null;
 
     const met = this.getMetByPlan({
       goals,
       muscle_groups,
     });
 
-
     const calories = this.calculateCaloriesBurned(
-      userFitnessData?.weight_kg,
+      weightKg,
       Number(training_time) || 60,
       met,
     );
+
     const exercises = data.map(
       ({
         workout_plan_id,
@@ -480,6 +492,340 @@ export class WorkoutPlansService {
       is_public,
       calories,
       exercises,
+    };
+  }
+
+  async startWorkoutSession(
+    req: AuthenticateRequest,
+    dto: StartWorkoutSessionDto
+  ) {
+    const supabase = req.supabase;
+    const userId = req.user.id;
+    const { data: openSession } = await supabase
+      .from('workout_sessions')
+      .select('id')
+      .eq('user_id', userId)
+      .is('finished_at', null)
+      .maybeSingle();
+
+    if (openSession) {
+      throw new Error('Já existe um treino em andamento');
+    }
+
+    const { data, error } = await supabase
+      .from('workout_sessions')
+      .insert({
+        user_id: userId,
+        workout_plan_id: dto.planId,
+        started_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+
+
+    if (error) throw error;
+    return data;
+  }
+
+  async finishWorkoutSession(req: AuthenticateRequest, sessionId: string) {
+    const supabase = req.supabase;
+    const userId = req.user.id;
+
+    const { error } = await supabase
+      .from('workout_sessions')
+      .update({
+        finished_at: new Date().toISOString(),
+      })
+      .eq('id', sessionId)
+      .eq('user_id', userId)
+      .is('finished_at', null);
+
+    if (error) throw error;
+
+    return { success: true };
+  }
+
+  async addSetToSession(
+    req: AuthenticateRequest,
+    sessionId: string,
+    dto: AddSetToSessionDto
+  ) {
+    const supabase = req.supabase;
+    const userId = req.user.id;
+
+    const { error: setError } = await supabase
+      .from('workout_session_sets')
+      .insert({
+        user_id: userId,
+        session_id: sessionId,
+        workout_exercise_id: dto.workout_exercise_id,
+        set_number: dto.set_number,
+        reps: dto.reps,
+        weight: dto.weight,
+        executed_at: new Date().toISOString(),
+      });
+
+    if (setError) throw setError;
+
+    const { data: sessionExercise } = await supabase
+      .from('workout_session_exercises')
+      .select('id, completed_sets')
+      .eq('session_id', sessionId)
+      .eq('workout_exercise_id', dto.workout_exercise_id)
+      .maybeSingle();
+
+    if (!sessionExercise) {
+      const { error: insertError } = await supabase
+        .from('workout_session_exercises')
+        .insert({
+          session_id: sessionId,
+          workout_exercise_id: dto.workout_exercise_id,
+          completed_sets: 1,
+        });
+
+      if (insertError) throw insertError;
+    } else {
+      const { error: updateError } = await supabase
+        .from('workout_session_exercises')
+        .update({
+          completed_sets: sessionExercise.completed_sets + 1,
+        })
+        .eq('id', sessionExercise.id);
+
+      if (updateError) throw updateError;
+    }
+
+    return { success: true };
+  }
+
+  async addExerciseToSession(
+    req: AuthenticateRequest,
+    sessionId: string,
+    dto: AddExerciseToSessionDto,
+  ) {
+    const supabase = req.supabase;
+    const userId = req.user.id;
+
+    const { data, error } = await supabase
+      .from('workout_session_exercises')
+      .insert({
+        session_id: sessionId,
+        user_id: userId,
+        workout_exercise_id: dto.workout_exercise_id,
+        completed_sets: 0,
+        created_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async getWorkoutHistory(req: AuthenticateRequest) {
+    const supabase = req.supabase;
+    const userId = req.user.id;
+
+    const { data, error } = await supabase
+      .from('workout_session_sets')
+      .select(`
+      reps,
+      weight,
+      set_number,
+      executed_at,
+      workout_exercises (
+        id,
+        name,
+        sets,
+        reps,
+        weight
+      ),
+      workout_sessions (
+        started_at
+      )
+    `)
+      .eq('user_id', userId)
+      .order('executed_at', { ascending: false });
+
+    if (error) throw error;
+
+    return this.groupWorkoutHistory(data);
+  }
+
+  async getExerciseHistory(
+    req: AuthenticateRequest,
+    workoutExerciseId: string,
+  ) {
+    const supabase = req.supabase;
+    const userId = req.user.id;
+
+    const { data, error } = await supabase
+      .from('workout_session_sets')
+      .select(`
+      reps,
+      weight,
+      set_number,
+      executed_at,
+      workout_sessions (
+        started_at
+      )
+    `)
+      .eq('user_id', userId)
+      .eq('workout_exercise_id', workoutExerciseId)
+      .order('executed_at', { ascending: false });
+
+    if (error) throw error;
+    if (!data?.length) return [];
+
+    return this.groupExerciseHistoryDirect(data);
+  }
+
+  private groupExerciseHistoryDirect(rows: any[]) {
+    const map = new Map<string, any>();
+
+    for (const row of rows) {
+      const date = row.workout_sessions.started_at.split('T')[0];
+
+      if (!map.has(date)) {
+        map.set(date, {
+          date,
+          sets: [],
+        });
+      }
+
+      map.get(date).sets.push({
+        set: row.set_number,
+        reps: row.reps,
+        weight: row.weight,
+      });
+    }
+
+    return [
+      {
+        history: Array.from(map.values()),
+      },
+    ];
+  }
+
+  private groupExerciseHistory(rows: any[]) {
+    const map = new Map<string, any>();
+
+    for (const row of rows) {
+      const sessionExercise = row.workout_session_exercises;
+      const workoutExercise = sessionExercise?.workout_exercises;
+      const session = row.workout_sessions;
+
+      if (!workoutExercise || !session) {
+        continue;
+      }
+
+      const exerciseId = workoutExercise.id;
+      const date = session.started_at.split('T')[0];
+
+      if (!map.has(exerciseId)) {
+        map.set(exerciseId, {
+          exercise_id: exerciseId,
+          exercise_name: workoutExercise.name,
+          planned_sets: workoutExercise.sets,
+          planned_reps: workoutExercise.reps,
+          planned_weight: workoutExercise.weight,
+          history: [],
+        });
+      }
+
+      const entry = map.get(exerciseId);
+
+      let day = entry.history.find((h) => h.date === date);
+      if (!day) {
+        day = { date, sets: [] };
+        entry.history.push(day);
+      }
+
+      day.sets.push({
+        set: row.set_number,
+        reps: row.reps,
+        weight: row.weight,
+      });
+    }
+
+    return Array.from(map.values());
+  }
+
+  private groupWorkoutHistory(rows: any[]) {
+    const map = new Map();
+
+    for (const row of rows) {
+      const exercise = row.workout_session_exercises.workout_exercises;
+      const date = row.workout_sessions.started_at.split('T')[0];
+
+      if (!map.has(exercise.id)) {
+        map.set(exercise.id, {
+          exercise_id: exercise.id,
+          exercise_name: exercise.name,
+          planned_sets: exercise.sets,
+          planned_reps: exercise.reps,
+          planned_weight: exercise.weight,
+          history: [],
+        });
+      }
+
+      const entry = map.get(exercise.id);
+
+      let day = entry.history.find(h => h.date === date);
+      if (!day) {
+        day = { date, sets: [] };
+        entry.history.push(day);
+      }
+
+      day.sets.push({
+        set: row.set_number,
+        reps: row.reps,
+        weight: row.weight,
+      });
+    }
+
+    return Array.from(map.values());
+  }
+
+  async getActiveWorkout(req: AuthenticateRequest, planId: string) {
+    const supabase = req.supabase;
+    const userId = req.user.id;
+
+    const { data: session } = await supabase
+      .from('workout_sessions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('workout_plan_id', planId)
+      .is('finished_at', null)
+      .maybeSingle();
+
+    if (!session) return null;
+
+    const { data, error } = await supabase
+      .from('workout_session_sets')
+      .select('workout_exercise_id')
+      .eq('session_id', session.id);
+
+    if (error) throw error;
+
+    const countMap = new Map<string, number>();
+
+    for (const row of data ?? []) {
+      countMap.set(
+        row.workout_exercise_id,
+        (countMap.get(row.workout_exercise_id) ?? 0) + 1,
+      );
+    }
+
+    return {
+      sessionId: session.id,
+      exercises: Array.from(countMap.entries()).map(
+        ([workout_exercise_id, completed_sets]) => ({
+          workout_exercise_id,
+          completed_sets,
+        }),
+      ),
     };
   }
 
@@ -549,7 +895,6 @@ export class WorkoutPlansService {
     if (goals.includes('Forca')) baseMet = 6.0;
     if (goals.includes('Emagrecimento')) baseMet = 6.5;
 
-    // 🔥 ajuste por grupos musculares grandes
     if (muscleGroups.includes('Pernas')) baseMet += 1.0;
     if (muscleGroups.includes('Costas')) baseMet += 0.5;
 
