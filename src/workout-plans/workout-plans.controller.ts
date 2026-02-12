@@ -112,4 +112,13 @@ export class WorkoutPlansController {
     return this.service.getExerciseHistory(req, exerciseId);
   }
 
+  @Get('tags/goals')
+  getGoalsTags(@Req() req) {
+    return this.service.getGoalsTags(req);
+  }
+
+  @Get('tags/muscle-groups')
+  getMuscleGroupsTags(@Req() req) {
+    return this.service.getMuscleGroupsTags(req);
+  }
 }

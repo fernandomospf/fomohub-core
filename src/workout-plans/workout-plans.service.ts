@@ -191,7 +191,18 @@ export class WorkoutPlansService {
     const supabase = req.supabase;
     const userId = req.user.id;
 
-    const userFitnessData = await this.getUserFitnessData(req, userId);
+    const { data: lastMeasurement, error: measurementError } =
+      await supabase
+        .from('body_measurements')
+        .select('weight_kg')
+        .eq('user_id', userId)
+        .order('measured_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (measurementError) {
+      throw new InternalServerErrorException(measurementError.message);
+    }
 
     const { data: likes, error: likesError } = await supabase
       .from('workout_plan_likes')
@@ -241,7 +252,7 @@ export class WorkoutPlansService {
         : this.calculatePlanDurationMinutes(plan.workout_exercises ?? []);
 
       const calories = this.calculateCaloriesBurned(
-        userFitnessData.weight_kg,
+        lastMeasurement?.weight_kg,
         durationMinutes,
         met,
       );
@@ -257,10 +268,20 @@ export class WorkoutPlansService {
 
   async listPublicPlans(req) {
     const supabase = req.supabase;
-    const { user } = req;
-    const { id: userId } = user;
+    const userId = req.user.id;
 
-    const userFitnessData = await this.getUserFitnessData(req, userId);
+    const { data: lastMeasurement, error: measurementError } =
+      await supabase
+        .from('body_measurements')
+        .select('weight_kg')
+        .eq('user_id', userId)
+        .order('measured_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (measurementError) {
+      throw new InternalServerErrorException(measurementError.message);
+    }
 
     const { data: likes, error: likesError } = await supabase
       .from('workout_plan_likes')
@@ -275,13 +296,8 @@ export class WorkoutPlansService {
     if (likesError) throw likesError;
     if (favError) throw favError;
 
-    const likedSet = new Set(
-      (likes ?? []).map(l => l.workout_plan_id),
-    );
-
-    const favoriteSet = new Set(
-      (favorites ?? []).map(f => f.workout_plan_id),
-    );
+    const likedSet = new Set((likes ?? []).map((l) => l.workout_plan_id));
+    const favoriteSet = new Set((favorites ?? []).map((f) => f.workout_plan_id));
 
     const { data: plans, error: plansError } = await supabase
       .from('workout_plans')
@@ -292,12 +308,17 @@ export class WorkoutPlansService {
     if (plansError) throw plansError;
     if (!plans?.length) return [];
 
-    const planIds = plans.map(p => p.id);
+    const planIds = plans.map((p) => p.id);
 
     const { data: allLikes } = await supabase
       .from('workout_plan_likes')
       .select('workout_plan_id')
       .in('workout_plan_id', planIds);
+
+    const likesCountMap = (allLikes ?? []).reduce((acc, like) => {
+      acc[like.workout_plan_id] = (acc[like.workout_plan_id] ?? 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
 
     const { data: exercises, error: exercisesError } = await supabase
       .from('workout_exercises')
@@ -312,26 +333,20 @@ export class WorkoutPlansService {
       return acc;
     }, {} as Record<string, any[]>);
 
-    return plans.map(plan => {
+    return plans.map((plan) => {
       const planExercises = exercisesByPlan[plan.id] ?? [];
+      const durationMinutes = plan.training_time
+        ? Number(plan.training_time)
+        : this.calculatePlanDurationMinutes(planExercises);
 
-      const durationMinutes = this.calculatePlanDurationMinutes(planExercises);
-      const met = this.getMetByGoal(
-        Array.isArray(plan.goals) ? plan.goals[0] : plan.goals,
-      );
+      const primaryGoal = Array.isArray(plan.goals) ? plan.goals[0] : plan.goals;
+      const met = this.getMetByGoal(primaryGoal);
 
       const calories = this.calculateCaloriesBurned(
-        userFitnessData.weight_kg,
+        lastMeasurement?.weight_kg,
         durationMinutes,
         met,
       );
-
-      const likesCountMap = (allLikes ?? []).reduce((acc, like) => {
-        acc[like.workout_plan_id] =
-          (acc[like.workout_plan_id] ?? 0) + 1;
-        return acc;
-      }, {} as Record<string, number>);
-
 
       return {
         ...plan,
@@ -340,7 +355,7 @@ export class WorkoutPlansService {
         workout_exercises: planExercises,
         is_liked: likedSet.has(plan.id),
         is_favorited: favoriteSet.has(plan.id),
-        likes_count: likesCountMap[plan.id] || 0,
+        likes_count: likesCountMap[plan.id] ?? 0,
       };
     });
   }
@@ -827,6 +842,28 @@ export class WorkoutPlansService {
         }),
       ),
     };
+  }
+
+  async getGoalsTags(req: AuthenticateRequest): Promise<string[]> {
+    const { data, error } = await req.supabase
+      .from('workout_plans')
+      .select('goals')
+      .eq('is_public', true)
+
+    if (error) throw error;
+    return Array.from(new Set(data?.flatMap((item) => item.goals || []) ?? []));
+  }
+
+  async getMuscleGroupsTags(req: AuthenticateRequest): Promise<string[]> {
+    const { data, error } = await req.supabase
+      .from('workout_plans')
+      .select('muscle_groups')
+      .eq('is_public', true)
+
+    if (error) throw error;
+    return Array.from(
+      new Set(data?.flatMap((item) => item.muscle_groups || []) ?? []),
+    );
   }
 
   private async getUserFitnessData(req, userId: string) {
