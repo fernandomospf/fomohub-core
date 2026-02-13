@@ -5,5 +5,6 @@ import { WorkoutPlansService } from './workout-plans.service';
 @Module({
   controllers: [WorkoutPlansController],
   providers: [WorkoutPlansService],
+  exports: [WorkoutPlansService],
 })
 export class WorkoutPlansModule {}
