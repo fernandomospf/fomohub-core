@@ -877,6 +877,29 @@ export class WorkoutPlansService {
     return data;
   }
 
+  async turnPublic(req, userId: string, planId: string) {
+    const { data, error } = await req.supabase
+      .from('workout_plans')
+      .update({ is_public: true })
+      .eq('user_id', userId)
+      .eq('id', planId)
+      .select();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async turnPrivate(req, userId: string, planId: string) {
+    const { data, error } = await req.supabase
+      .from('workout_plans')
+      .update({ is_public: false })
+      .eq('user_id', userId)
+      .eq('id', planId);
+
+    if (error) throw error;
+    return data;
+  }
+
   private calculateCaloriesBurned(
     weightKg: number,
     durationMinutes: number = 60,

@@ -167,4 +167,61 @@ export class ProfilesService {
     return { success: true };
   }
 
+async offensiveDays(req: AuthenticateRequest) {
+  const supabase = req.supabase;
+  const userId = req.user.id;
+
+  const { data, error } = await supabase
+    .from('workout_sessions')
+    .select('finished_at')
+    .eq('user_id', userId)
+    .order('finished_at', { ascending: true });
+
+  if (error) throw error;
+  if (!data || data.length === 0) return 0;
+
+  const workoutDates = data.map(d => {
+    const date = new Date(d.finished_at);
+    date.setHours(0,0,0,0);
+    return date;
+  });
+
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  const getWeekKey = (date: Date) => {
+    const oneJan = new Date(date.getFullYear(), 0, 1);
+    const numberOfDays = Math.floor((date.getTime() - oneJan.getTime()) / (1000 * 60 * 60 * 24));
+    const week = Math.ceil((date.getDay() + 1 + numberOfDays) / 7);
+    return `${date.getFullYear()}-${week}`;
+  };
+
+  const weeks: Record<string, Set<string>> = {};
+
+  workoutDates.forEach(d => {
+    const key = getWeekKey(d);
+    if (!weeks[key]) weeks[key] = new Set();
+    weeks[key].add(d.toISOString().slice(0,10));
+  });
+
+  let streak = 0;
+
+  const sortedWeeks = Object.keys(weeks).sort();
+  for (let weekKey of sortedWeeks) {
+    const weekDates = weeks[weekKey];
+
+    const daysInWeek = Array.from({ length: 7 }, (_, i) => i);
+
+    const misses = 7 - weekDates.size;
+
+    if (misses >= 2) {
+      streak = 0;
+    } else {
+      streak += weekDates.size;
+    }
+  }
+
+  return streak;
+}
+
 }

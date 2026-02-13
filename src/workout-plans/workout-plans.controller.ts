@@ -121,4 +121,14 @@ export class WorkoutPlansController {
   getMuscleGroupsTags(@Req() req) {
     return this.service.getMuscleGroupsTags(req);
   }
+
+  @Patch(':id/public')
+  turnPublic(@Req() req, @Param('id') planId: string) {
+    return this.service.turnPublic(req, req.user.id, planId);
+  }
+
+  @Patch(':id/private')
+  turnPrivate(@Req() req, @Param('id') planId: string) {
+    return this.service.turnPrivate(req, req.user.id, planId);
+  }
 }

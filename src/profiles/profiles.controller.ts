@@ -43,4 +43,18 @@ export class ProfilesController {
       message: 'Medidas atualizadas com sucesso',
     };
   }
+
+  @Get('offensive-days')
+  async offensiveDays(@Req() req, @Res() res) {
+    try {
+      const offensiveDays = await this.profilesService.offensiveDays(req);
+      return res.status(HttpStatus.OK).json({
+        offensiveDays
+      });
+    } catch (error) {
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        error: "Error getting offensive days"
+      });
+    }
+  }
 }
