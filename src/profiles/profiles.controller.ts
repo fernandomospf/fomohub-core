@@ -57,4 +57,32 @@ export class ProfilesController {
       });
     }
   }
+
+  @Get('training-count')
+  async trainingCount(@Req() req, @Res() res) {
+    try {
+      const trainingCount = await this.profilesService.countTraining(req);
+      return res.status(HttpStatus.OK).json({
+        trainingCount
+      });
+    } catch (error) {
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        error: "Error getting training count"
+      });
+    }
+  }
+
+  @Get('last-training')
+  async lastTraining(@Req() req, @Res() res) {
+    try {
+      const lastTraining = await this.profilesService.lastTraining(req);
+      return res.status(HttpStatus.OK).json({
+        lastTraining
+      });
+    } catch (error) {
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        error: "Error getting last training"
+      });
+    }
+  }
 }

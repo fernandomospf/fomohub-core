@@ -167,61 +167,105 @@ export class ProfilesService {
     return { success: true };
   }
 
-async offensiveDays(req: AuthenticateRequest) {
-  const supabase = req.supabase;
-  const userId = req.user.id;
+  async offensiveDays(req: AuthenticateRequest) {
+    const supabase = req.supabase;
+    const userId = req.user.id;
 
-  const { data, error } = await supabase
-    .from('workout_sessions')
-    .select('finished_at')
-    .eq('user_id', userId)
-    .order('finished_at', { ascending: true });
+    const { data, error } = await supabase
+      .from('workout_sessions')
+      .select('finished_at')
+      .eq('user_id', userId)
+      .order('finished_at', { ascending: true });
 
-  if (error) throw error;
-  if (!data || data.length === 0) return 0;
+    if (error) throw error;
+    if (!data || data.length === 0) return 0;
 
-  const workoutDates = data.map(d => {
-    const date = new Date(d.finished_at);
-    date.setHours(0,0,0,0);
-    return date;
-  });
+    const workoutDates = data.map(d => {
+      const date = new Date(d.finished_at);
+      date.setHours(0, 0, 0, 0);
+      return date;
+    });
 
-  const today = new Date();
-  today.setHours(0,0,0,0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-  const getWeekKey = (date: Date) => {
-    const oneJan = new Date(date.getFullYear(), 0, 1);
-    const numberOfDays = Math.floor((date.getTime() - oneJan.getTime()) / (1000 * 60 * 60 * 24));
-    const week = Math.ceil((date.getDay() + 1 + numberOfDays) / 7);
-    return `${date.getFullYear()}-${week}`;
-  };
+    const getWeekKey = (date: Date) => {
+      const oneJan = new Date(date.getFullYear(), 0, 1);
+      const numberOfDays = Math.floor((date.getTime() - oneJan.getTime()) / (1000 * 60 * 60 * 24));
+      const week = Math.ceil((date.getDay() + 1 + numberOfDays) / 7);
+      return `${date.getFullYear()}-${week}`;
+    };
 
-  const weeks: Record<string, Set<string>> = {};
+    const weeks: Record<string, Set<string>> = {};
 
-  workoutDates.forEach(d => {
-    const key = getWeekKey(d);
-    if (!weeks[key]) weeks[key] = new Set();
-    weeks[key].add(d.toISOString().slice(0,10));
-  });
+    workoutDates.forEach(d => {
+      const key = getWeekKey(d);
+      if (!weeks[key]) weeks[key] = new Set();
+      weeks[key].add(d.toISOString().slice(0, 10));
+    });
 
-  let streak = 0;
+    let streak = 0;
 
-  const sortedWeeks = Object.keys(weeks).sort();
-  for (let weekKey of sortedWeeks) {
-    const weekDates = weeks[weekKey];
+    const sortedWeeks = Object.keys(weeks).sort();
+    for (let weekKey of sortedWeeks) {
+      const weekDates = weeks[weekKey];
 
-    const daysInWeek = Array.from({ length: 7 }, (_, i) => i);
+      const daysInWeek = Array.from({ length: 7 }, (_, i) => i);
 
-    const misses = 7 - weekDates.size;
+      const misses = 7 - weekDates.size;
 
-    if (misses >= 2) {
-      streak = 0;
-    } else {
-      streak += weekDates.size;
+      if (misses >= 2) {
+        streak = 0;
+      } else {
+        streak += weekDates.size;
+      }
     }
+
+    return streak;
   }
 
-  return streak;
-}
+  async countTraining(req: AuthenticateRequest) {
+    const supabase = req.supabase;
+    const userId = req.user.id;
 
+    const { count, error } = await supabase
+      .from('workout_sessions')
+      .select('id', { count: 'exact' })
+      .eq('user_id', userId);
+
+    if (error) throw error;
+    if (!count) return 0;
+
+    return count;
+  }
+
+  async lastTraining(req: AuthenticateRequest) {
+    const supabase = req.supabase;
+    const userId = req.user.id;
+
+    const { data, error } = await supabase
+      .from('workout_sessions')
+      .select('finished_at, workout_plan_id')
+      .eq('user_id', userId)
+      .order('finished_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    
+    if (error) throw error;
+    if (!data) return null;
+    
+    const { data: workoutPlan, error: workoutPlanError } = await supabase
+      .from('workout_plans')
+      .select('*')
+      .eq('id', data.workout_plan_id)
+      .maybeSingle();
+
+    if (workoutPlanError) throw workoutPlanError;
+    if (!workoutPlan) return null;
+
+    return {
+      finished_at: data.finished_at,
+      workout_plan: workoutPlan
+    };
+  }
 }
