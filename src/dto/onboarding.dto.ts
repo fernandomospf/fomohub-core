@@ -1,4 +1,12 @@
-import { IsBoolean, IsDateString, IsNumber, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsNumber,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class FitnessDataDto {
   @IsOptional()
@@ -29,13 +37,26 @@ export class FitnessDataDto {
 }
 
 export class ParqDto {
-  @IsBoolean() hasHeartCondition: boolean;
-  @IsBoolean() chestPainDuringActivity: boolean;
-  @IsBoolean() chestPainLastMonth: boolean;
-  @IsBoolean() dizzinessOrFainting: boolean;
-  @IsBoolean() boneOrJointProblem: boolean;
-  @IsBoolean() usesHeartOrPressureMedication: boolean;
-  @IsBoolean() otherReasonNotToExercise: boolean;
+  @IsBoolean()
+  hasHeartCondition: boolean;
+
+  @IsBoolean()
+  chestPainDuringActivity: boolean;
+
+  @IsBoolean()
+  chestPainLastMonth: boolean;
+
+  @IsBoolean()
+  dizzinessOrFainting: boolean;
+
+  @IsBoolean()
+  boneOrJointProblem: boolean;
+
+  @IsBoolean()
+  usesHeartOrPressureMedication: boolean;
+
+  @IsBoolean()
+  otherReasonNotToExercise: boolean;
 }
 
 export class ConsentDto {
@@ -44,10 +65,24 @@ export class ConsentDto {
 
   @IsString()
   version: string;
+
+  @IsBoolean()
+  accepted: boolean;
+
+  @IsDateString()
+  acceptedAt: string;
 }
 
 export class OnboardingDto {
+  @ValidateNested()
+  @Type(() => FitnessDataDto)
   fitnessData: FitnessDataDto;
+
+  @ValidateNested()
+  @Type(() => ParqDto)
   parq: ParqDto;
+
+  @ValidateNested()
+  @Type(() => ConsentDto)
   consent: ConsentDto;
 }
