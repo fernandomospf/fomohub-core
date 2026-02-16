@@ -9,6 +9,7 @@ import {
   Patch,
   Query,
   Res,
+  Delete,
 } from '@nestjs/common';
 import { WorkoutPlansService } from './workout-plans.service';
 import { SupabaseAuthGuard } from '../auth/auth.guard';
@@ -160,5 +161,18 @@ export class WorkoutPlansController {
   @Patch(':id/private')
   turnPrivate(@Req() req, @Param('id') planId: string) {
     return this.service.turnPrivate(req, req.user.id, planId);
+  }
+
+  @Delete(':id')
+  async deletePlan(
+    @Req() req,
+    @Res() res,
+    @Param('id') planId: string) {
+    try {
+      await this.service.deletePlan(req, req.user.id, planId);
+      return res.status(204).json({});
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
   }
 }

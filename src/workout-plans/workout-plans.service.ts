@@ -1002,6 +1002,18 @@ export class WorkoutPlansService {
     );
   }
 
+  async deletePlan(req: AuthenticateRequest, userId: string, planId: string) {
+    const { data, error } = await req.supabase
+      .from('workout_plans')
+      .delete()
+      .eq('user_id', userId)
+      .eq('id', planId)
+      .select();
+
+    if (error) throw error;
+    return data;
+  }
+
   private async getUserFitnessData(req, userId: string) {
     const { data, error } = await req.supabase
       .from('profile_fitness_data')
