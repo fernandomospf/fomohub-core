@@ -7,11 +7,14 @@ import {
   UseGuards,
   Body,
   Patch,
+  Query,
+  Res,
 } from '@nestjs/common';
 import { WorkoutPlansService } from './workout-plans.service';
 import { SupabaseAuthGuard } from '../auth/auth.guard';
-import { AuthenticateRequest } from 'reqGuard';
 import { AddSetToSessionDto } from './dto/addSetToSession.dto';
+import { PaginationDto } from 'src/dto/pagination.dto';
+import { WorkoutPlansResponse } from './dto/listMyWorkouts.dto';
 
 @Controller('workout-plans')
 @UseGuards(SupabaseAuthGuard)
@@ -19,13 +22,31 @@ export class WorkoutPlansController {
   constructor(private readonly service: WorkoutPlansService) { }
 
   @Get('liked')
-  listMyLikedPlans(@Req() req) {
-    return this.service.listMyLikedPlans(req);
+  async listMyLikedPlans(
+    @Req() req,
+    @Res() res,
+    @Query() pagination: PaginationDto,
+  ) {
+    try {
+      const response = await this.service.listMyLikedPlans(req, pagination);
+      return res.status(200).json(response);
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
   }
 
   @Get('favorite')
-  listMyFavoritePlans(@Req() req) {
-    return this.service.listMyFavoritePlans(req);
+  async listMyFavoritePlans(
+    @Req() req,
+    @Res() res,
+    @Query() pagination: PaginationDto
+  ): Promise<WorkoutPlansResponse> {
+    try {
+      const response = await this.service.listMyFavoritePlans(req, pagination);
+      return res.status(200).json(response);
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
   }
 
   @Post()
@@ -63,8 +84,17 @@ export class WorkoutPlansController {
   }
 
   @Get()
-  listMyPlans(@Req() req) {
-    return this.service.listMyPlans(req);
+  async listMyPlans(
+    @Req() req,
+    @Res() res,
+    @Query() pagination: PaginationDto
+  ): Promise<WorkoutPlansResponse> {
+    try {
+      const response = await this.service.listMyPlans(req, pagination);
+      return res.status(200).json(response);
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
   }
 
   @Post('workout-sessions/start')

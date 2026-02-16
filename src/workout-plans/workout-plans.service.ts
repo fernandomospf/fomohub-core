@@ -3,6 +3,28 @@ import { StartWorkoutSessionDto } from './dto/start-workout-session.dto';
 import { AuthenticateRequest } from 'reqGuard';
 import { AddExerciseToSessionDto } from './dto/addExerciseToSession.dto';
 import { AddSetToSessionDto } from './dto/addSetToSession.dto';
+import { PaginationDto } from 'src/dto/pagination.dto';
+import { SupabaseClient } from '@supabase/supabase-js';
+
+export interface RequestWithUser extends Request {
+  user: {
+    id: string
+  }
+  supabase: SupabaseClient;
+}
+
+export type FavoriteWithPlan = {
+  created_at: string;
+  workout_plan: {
+    id: string;
+    goals: string[] | null;
+    workout_exercises: any[];
+    muscle_groups: string[] | null;
+    training_time: number | null;
+    workout_type: string | null;
+    [key: string]: any;
+  };
+};
 
 
 @Injectable()
@@ -45,35 +67,53 @@ export class WorkoutPlansService {
     return plan;
   }
 
-  async listMyPlans(req) {
+  async listMyPlans(req: RequestWithUser, pagination: PaginationDto) {
     const supabase = req.supabase;
     const userId = req.user.id;
 
+    const page = pagination.page ?? 1;
+    const limit = pagination.limit ?? 10;
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
     const userFitnessData = await this.getUserFitnessData(req, userId);
 
-    const { data: plans, error } = await supabase
+    const { data: plans, count, error } = await supabase
       .from('workout_plans')
       .select(`
       *,
       workout_exercises (*)
-    `)
+    `, { count: 'exact' })
       .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .range(from, to);
 
     if (error) throw error;
-    if (!plans?.length) return [];
+    if (!plans?.length) {
+      return {
+        data: [],
+        meta: {
+          total: count ?? 0,
+          page,
+          lastPage: 0,
+        },
+      };
+    }
 
     const planIds = plans.map(p => p.id);
 
     const { data: userLikes } = await supabase
       .from('workout_plan_likes')
       .select('workout_plan_id')
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .in('workout_plan_id', planIds);
 
     const { data: userFavorites } = await supabase
       .from('workout_plan_favorites')
       .select('workout_plan_id')
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .in('workout_plan_id', planIds);
 
     const { data: allLikes } = await supabase
       .from('workout_plan_likes')
@@ -94,7 +134,7 @@ export class WorkoutPlansService {
       return acc;
     }, {} as Record<string, number>);
 
-    return plans.map(plan => {
+    const enrichedPlans = plans.map(plan => {
       const met = this.getMetByPlan(plan);
       const calories = this.calculateCaloriesBurned(
         userFitnessData?.weight_kg,
@@ -110,68 +150,114 @@ export class WorkoutPlansService {
         likes_count: likesCountMap[plan.id] ?? 0,
       };
     });
+
+    return {
+      data: enrichedPlans,
+      meta: {
+        total: count ?? 0,
+        page,
+        lastPage: Math.ceil((count ?? 0) / limit),
+      },
+    };
   }
 
-  async listMyFavoritePlans(req) {
+  async listMyFavoritePlans(
+    req: RequestWithUser,
+    pagination: PaginationDto,
+  ) {
     const supabase = req.supabase;
     const userId = req.user.id;
 
-    const userFitnessData = await this.getUserFitnessData(req, userId);
+    const page = pagination.page ?? 1;
+    const limit = pagination.limit ?? 10;
 
-    const { data: favorites, error: favError } = await supabase
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    const { data: favorites, count, error } = await supabase
       .from('workout_plan_favorites')
-      .select('workout_plan_id')
-      .eq('user_id', userId);
+      .select('workout_plan_id', { count: 'exact' })
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .range(from, to);
 
-    if (favError) throw favError;
-    if (!favorites?.length) return [];
+    if (error) throw error;
 
-    const favoritePlanIds = favorites.map(f => f.workout_plan_id);
+    if (!favorites?.length) {
+      return {
+        data: [],
+        meta: {
+          total: count ?? 0,
+          page,
+          lastPage: 0,
+        },
+      };
+    }
+
+    const planIds = favorites.map(f => f.workout_plan_id);
 
     const { data: plans, error: plansError } = await supabase
       .from('workout_plans')
-      .select('*')
-      .in('id', favoritePlanIds)
-      .order('created_at', { ascending: false });
+      .select(`
+      *,
+      workout_exercises (*)
+    `)
+      .in('id', planIds);
 
     if (plansError) throw plansError;
-    if (!plans?.length) return [];
 
-    const planIds = plans.map(p => p.id);
+    if (!plans?.length) {
+      return {
+        data: [],
+        meta: {
+          total: count ?? 0,
+          page,
+          lastPage: 0,
+        },
+      };
+    }
 
-    const { data: allLikes } = await supabase
+    const orderedPlans = planIds
+      .map(id => plans.find(p => p.id === id))
+      .filter(Boolean);
+    const { data: likes } = await supabase
       .from('workout_plan_likes')
       .select('workout_plan_id')
       .in('workout_plan_id', planIds);
 
-    const likesCountMap = (allLikes ?? []).reduce((acc, like) => {
+    const likesCountMap = (likes ?? []).reduce((acc, like) => {
       acc[like.workout_plan_id] =
         (acc[like.workout_plan_id] ?? 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
-    const { data: exercises, error: exercisesError } = await supabase
-      .from('workout_exercises')
-      .select('*')
-      .in('workout_plan_id', planIds);
+    const { data: lastMeasurement } = await supabase
+      .from('body_measurements')
+      .select('weight_kg')
+      .eq('user_id', userId)
+      .order('measured_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (exercisesError) throw exercisesError;
+    const weight = lastMeasurement?.weight_kg ?? null;
 
-    const exercisesByPlan = exercises.reduce((acc, ex) => {
-      if (!acc[ex.workout_plan_id]) acc[ex.workout_plan_id] = [];
-      acc[ex.workout_plan_id].push(ex);
-      return acc;
-    }, {} as Record<string, any[]>);
+    const enrichedPlans = orderedPlans.map(plan => {
+      const exercises = plan.workout_exercises ?? [];
 
-    return plans.map(plan => {
-      const planExercises = exercisesByPlan[plan.id] ?? [];
+      const durationMinutes = plan.training_time
+        ? Number(plan.training_time)
+        : this.calculatePlanDurationMinutes(exercises);
 
-      const durationMinutes = this.calculatePlanDurationMinutes(planExercises);
-      const primaryGoal = Array.isArray(plan.goals) ? plan.goals[0] : plan.goals;
-      const met = this.getMetByGoal(primaryGoal);
+      const primaryGoal = Array.isArray(plan.goals)
+        ? plan.goals[0]
+        : plan.goals;
+
+      const met = this.getMetByGoal(
+        primaryGoal?.toLowerCase?.(),
+      );
 
       const calories = this.calculateCaloriesBurned(
-        userFitnessData.weight_kg,
+        weight,
         durationMinutes,
         met,
       );
@@ -180,37 +266,53 @@ export class WorkoutPlansService {
         ...plan,
         calories,
         estimated_duration_minutes: Math.round(durationMinutes),
-        workout_exercises: planExercises,
         is_favorited: true,
         likes_count: likesCountMap[plan.id] ?? 0,
       };
     });
+
+    return {
+      data: enrichedPlans,
+      meta: {
+        total: count ?? 0,
+        page,
+        lastPage: Math.ceil((count ?? 0) / limit),
+      },
+    };
   }
 
-  async listMyLikedPlans(req) {
+  async listMyLikedPlans(
+    req: RequestWithUser,
+    pagination: PaginationDto,
+  ) {
     const supabase = req.supabase;
     const userId = req.user.id;
 
-    const { data: lastMeasurement, error: measurementError } =
-      await supabase
-        .from('body_measurements')
-        .select('weight_kg')
-        .eq('user_id', userId)
-        .order('measured_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    const page = pagination.page ?? 1;
+    const limit = pagination.limit ?? 10;
 
-    if (measurementError) {
-      throw new InternalServerErrorException(measurementError.message);
-    }
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
 
-    const { data: likes, error: likesError } = await supabase
+    const { data: likes, count, error: likesError } = await supabase
       .from('workout_plan_likes')
-      .select('workout_plan_id')
-      .eq('user_id', userId);
+      .select('workout_plan_id', { count: 'exact' })
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .range(from, to);
 
     if (likesError) throw likesError;
-    if (!likes?.length) return [];
+
+    if (!likes?.length) {
+      return {
+        data: [],
+        meta: {
+          total: count ?? 0,
+          page,
+          lastPage: 0,
+        },
+      };
+    }
 
     const likedPlanIds = likes.map(l => l.workout_plan_id);
 
@@ -223,9 +325,23 @@ export class WorkoutPlansService {
       .in('id', likedPlanIds);
 
     if (plansError) throw plansError;
-    if (!plans?.length) return [];
 
-    const planIds = plans.map((plan) => plan.id);
+    if (!plans?.length) {
+      return {
+        data: [],
+        meta: {
+          total: count ?? 0,
+          page,
+          lastPage: 0,
+        },
+      };
+    }
+
+    const orderedPlans = likedPlanIds
+      .map(id => plans.find(p => p.id === id))
+      .filter(Boolean);
+
+    const planIds = orderedPlans.map(p => p.id);
 
     const { data: allLikes } = await supabase
       .from('workout_plan_likes')
@@ -238,21 +354,32 @@ export class WorkoutPlansService {
       return acc;
     }, {} as Record<string, number>);
 
+    const { data: lastMeasurement } = await supabase
+      .from('body_measurements')
+      .select('weight_kg')
+      .eq('user_id', userId)
+      .order('measured_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    return plans.map(plan => {
+    const weight = lastMeasurement?.weight_kg ?? null;
+
+    const enrichedPlans = orderedPlans.map(plan => {
       const primaryGoal =
         Array.isArray(plan.goals) && plan.goals.length > 0
           ? plan.goals[0]
           : null;
 
-      const met = this.getMetByGoal(primaryGoal);
+      const met = this.getMetByGoal(
+        primaryGoal?.toLowerCase?.(),
+      );
 
       const durationMinutes = plan.training_time
         ? Number(plan.training_time)
         : this.calculatePlanDurationMinutes(plan.workout_exercises ?? []);
 
       const calories = this.calculateCaloriesBurned(
-        lastMeasurement?.weight_kg,
+        weight,
         durationMinutes,
         met,
       );
@@ -264,6 +391,15 @@ export class WorkoutPlansService {
         likes_count: likesCountMap[plan.id] ?? 0,
       };
     });
+
+    return {
+      data: enrichedPlans,
+      meta: {
+        total: count ?? 0,
+        page,
+        lastPage: Math.ceil((count ?? 0) / limit),
+      },
+    };
   }
 
   async listPublicPlans(req) {
