@@ -10,12 +10,15 @@ import {
   Query,
   Res,
   Delete,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { WorkoutPlansService } from './workout-plans.service';
 import { SupabaseAuthGuard } from '../auth/auth.guard';
 import { AddSetToSessionDto } from './dto/addSetToSession.dto';
 import { PaginationDto } from 'src/dto/pagination.dto';
 import { WorkoutPlansResponse } from './dto/listMyWorkouts.dto';
+import { ActiveWorkoutSessionResponse } from './dto/active-workout-session.dto';
 
 @Controller('workout-plans')
 @UseGuards(SupabaseAuthGuard)
@@ -74,6 +77,25 @@ export class WorkoutPlansController {
     @Param('id') planId: string,
   ) {
     return this.service.toggleFavorite(req, planId);
+  }
+
+  @Get('sessions/active')
+  async getActiveSession(
+    @Req() req,
+    @Res() res,
+  ): Promise<void> {
+    try {
+      const result = await this.service.getActiveSession(req);
+      if (!result) {
+        return res.status(HttpStatus.NO_CONTENT).json({});
+      }
+      return res.status(HttpStatus.OK).json(result);
+    } catch (error) {
+      throw new HttpException(
+        { message: error?.message ?? 'Erro interno ao buscar sessão ativa' },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   @Get(':id')

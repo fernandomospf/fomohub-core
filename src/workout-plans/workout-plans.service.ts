@@ -5,6 +5,7 @@ import { AddExerciseToSessionDto } from './dto/addExerciseToSession.dto';
 import { AddSetToSessionDto } from './dto/addSetToSession.dto';
 import { PaginationDto } from 'src/dto/pagination.dto';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { ActiveWorkoutSessionResponse } from './dto/active-workout-session.dto';
 
 export interface RequestWithUser extends Request {
   user: {
@@ -830,6 +831,75 @@ export class WorkoutPlansService {
     if (!data?.length) return [];
 
     return this.groupExerciseHistoryDirect(data);
+  }
+
+  async getActiveSession(
+    req: AuthenticateRequest
+  ): Promise<ActiveWorkoutSessionResponse | null> {
+    const supabase = req.supabase;
+    const userId = req.user.id;
+
+    const { data: session, error: sessionError } = await supabase
+      .from('workout_sessions')
+      .select('id, workout_plan_id, started_at')
+      .eq('user_id', userId)
+      .is('finished_at', null)
+      .maybeSingle();
+
+    if (sessionError) throw sessionError;
+    if (!session) return null;
+
+    const { data: plan, error: planError } = await supabase
+      .from('workout_plans')
+      .select('id, name')
+      .eq('id', session.workout_plan_id)
+      .single();
+
+    if (planError) throw planError;
+
+    const { data: exercises, error: exercisesError } = await supabase
+      .from('workout_exercises')
+      .select('id, name, sets, reps, weight, rest_time_seconds')
+      .eq('workout_plan_id', session.workout_plan_id);
+
+    if (exercisesError) throw exercisesError;
+
+    const { data: sessionExercises, error: sessionExercisesError } = await supabase
+      .from('workout_session_exercises')
+      .select('workout_exercise_id, completed_sets')
+      .eq('session_id', session.id);
+
+    if (sessionExercisesError) throw sessionExercisesError;
+
+    const completedSetsMap = new Map<string, number>(
+      (sessionExercises ?? []).map((se) => [se.workout_exercise_id, se.completed_sets])
+    );
+
+    const exerciseList = (exercises ?? []).map((ex) => ({
+      workout_exercise_id: ex.id,
+      name: ex.name,
+      sets: ex.sets,
+      reps: ex.reps,
+      weight: Number(ex.weight ?? 0),
+      rest_time_seconds: ex.rest_time_seconds,
+      completed_sets: completedSetsMap.get(ex.id) ?? 0,
+    }));
+
+    const totalSets = exerciseList.reduce((sum, ex) => sum + ex.sets, 0);
+    const completedSets = exerciseList.reduce((sum, ex) => sum + ex.completed_sets, 0);
+    const elapsedMinutes = Math.floor(
+      (Date.now() - new Date(session.started_at).getTime()) / 60000
+    );
+
+    return {
+      sessionId: session.id,
+      workoutId: plan.id,
+      workoutName: plan.name,
+      completedSets,
+      totalSets,
+      elapsedMinutes,
+      exercises: exerciseList,
+    };
   }
 
   private groupExerciseHistoryDirect(rows: any[]) {
