@@ -70,10 +70,7 @@ export class WorkoutBuilderService {
       for (const item of scored) {
 
         if (selected.length >= maxExercises) break;
-
         if (this.isRedundant(item.exercise, selected)) continue;
-
-        if (!this.canAdd(item.exercise, context)) continue;
 
         const isPrimary =
           item.exercise.priority_type === 'primary';
@@ -101,9 +98,16 @@ export class WorkoutBuilderService {
       }
     }
 
+    await this.ensureStructuralMinimum(
+      selected,
+      slots,
+      level,
+      equipment,
+      context,
+    );
+
     if (selected.length < minExercises) {
 
-      // Busca candidatos de TODOS os slots
       let allCandidates: ExerciseCandidate[] = [];
 
       for (const slot of slots) {
@@ -113,6 +117,7 @@ export class WorkoutBuilderService {
             level,
             equipment,
           );
+
         allCandidates = [...allCandidates, ...candidates];
       }
 
@@ -127,7 +132,6 @@ export class WorkoutBuilderService {
 
         if (selected.length >= minExercises) break;
 
-       
         if (
           context.currentWorkoutFatigue +
           ex.fatigue_score >
@@ -140,6 +144,49 @@ export class WorkoutBuilderService {
     }
 
     return selected.slice(0, maxExercises);
+  }
+
+  private async ensureStructuralMinimum(
+    selected: ExerciseCandidate[],
+    slots: string[],
+    level: string,
+    equipment: string[] | undefined,
+    context: any,
+  ) {
+
+    const requiredMuscles = ['biceps', 'triceps'];
+
+    for (const muscle of requiredMuscles) {
+
+      if (!slots.includes(muscle)) continue;
+
+      const alreadyExists =
+        selected.some(e =>
+          this.mapSlotToMuscle(e.movement_pattern) === muscle
+        );
+
+      if (alreadyExists) continue;
+
+      const candidates =
+        await this.exerciseLibrary.findCandidates(
+          muscle,
+          level,
+          equipment,
+        );
+
+      const best =
+        candidates
+          .filter(c => c.priority_type !== 'primary')
+          .sort((a, b) =>
+            this.enhancedScore(b, context, level) -
+            this.enhancedScore(a, context, level)
+          )[0];
+
+      if (best) {
+        selected.push(best);
+        context.currentWorkoutFatigue += best.fatigue_score;
+      }
+    }
   }
 
   private getStructuralTemplate(
@@ -156,19 +203,22 @@ export class WorkoutBuilderService {
       const muscle = this.mapSlotToMuscle(slot);
       if (!muscle) continue;
 
-      template[muscle] = {
-        primary:
-          muscle === 'chest' ||
-          muscle === 'back' ||
-          muscle === 'quads'
-            ? 2
-            : 1,
-        secondary:
-          muscle === 'triceps' ||
-          muscle === 'biceps'
-            ? 2
-            : 1,
-      };
+      if (!template[muscle]) {
+        template[muscle] = { primary: 0, secondary: 0 };
+      }
+
+      template[muscle].primary +=
+        muscle === 'chest' ||
+        muscle === 'back' ||
+        muscle === 'quads'
+          ? 1
+          : 0;
+
+      template[muscle].secondary +=
+        muscle === 'biceps' ||
+        muscle === 'triceps'
+          ? 1
+          : 0;
     }
 
     return template;
@@ -196,17 +246,6 @@ export class WorkoutBuilderService {
       score -= 6;
 
     return score;
-  }
-
-  private canAdd(
-    exercise: ExerciseCandidate,
-    context: any,
-  ) {
-    return (
-      context.currentWorkoutFatigue +
-      exercise.fatigue_score <=
-      context.fatigueLimit
-    );
   }
 
   private isRedundant(

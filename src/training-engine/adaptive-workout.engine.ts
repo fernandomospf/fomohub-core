@@ -10,13 +10,13 @@ export interface ExercisePrescription {
   restSeconds: number;
 }
 
-
 @Injectable()
 export class AdaptiveWorkoutEngine {
 
   buildPrescription(params: {
     exercises: ExerciseCandidate[];
     phase: string;
+    goal: 'hypertrophy' | 'strength' | 'endurance' | 'fat_loss';
     progressionProfile?: Record<
       string,
       {
@@ -27,7 +27,7 @@ export class AdaptiveWorkoutEngine {
     >;
   }) {
 
-    const prescriptions:ExercisePrescription[] = [];
+    const prescriptions: ExercisePrescription[] = [];
 
     const isOverreaching =
       this.detectOverreaching(params.progressionProfile);
@@ -37,18 +37,19 @@ export class AdaptiveWorkoutEngine {
       const sets = this.resolveSets(
         exercise,
         params.phase,
+        params.goal,
         isOverreaching,
       );
 
       const reps = this.resolveReps(
         exercise,
-        params.phase,
+        params.goal,
       );
 
       const load = this.resolveLoad(
         exercise,
         params.phase,
-        reps,
+        params.goal,
         params.progressionProfile?.[exercise.id],
         isOverreaching,
       );
@@ -59,7 +60,10 @@ export class AdaptiveWorkoutEngine {
         sets,
         reps,
         suggestedLoad: load,
-        restSeconds: this.resolveRest(params.phase),
+        restSeconds: this.resolveRest(
+          params.phase,
+          params.goal,
+        ),
       });
     }
 
@@ -69,51 +73,57 @@ export class AdaptiveWorkoutEngine {
   private resolveSets(
     exercise: ExerciseCandidate,
     phase: string,
+    goal: string,
     overreach: boolean,
   ) {
 
     if (overreach) return 2;
 
-    if (phase === 'base') {
-      return exercise.priority_type === 'primary' ? 4 : 3;
-    }
+    const primary =
+      exercise.priority_type === 'primary';
 
-    if (phase === 'intensification') return 3;
+    if (goal === 'strength')
+      return primary ? 5 : 3;
 
-    if (phase === 'peak') return 2;
+    if (goal === 'hypertrophy')
+      return primary ? 4 : 3;
 
-    if (phase === 'deload') return 2;
+    if (goal === 'endurance')
+      return 3;
+
+    if (goal === 'fat_loss')
+      return 3;
 
     return 3;
   }
 
   private resolveReps(
     exercise: ExerciseCandidate,
-    phase: string,
+    goal: string,
   ) {
 
-    const primary = exercise.priority_type === 'primary';
+    const primary =
+      exercise.priority_type === 'primary';
 
-    if (phase === 'base')
-      return primary ? 10 : 12;
-
-    if (phase === 'intensification')
-      return primary ? 6 : 8;
-
-    if (phase === 'peak')
+    if (goal === 'strength')
       return primary ? 4 : 6;
 
-    if (phase === 'deload')
-      return primary ? 8 : 10;
+    if (goal === 'hypertrophy')
+      return primary ? 8 : 12;
+
+    if (goal === 'endurance')
+      return primary ? 15 : 18;
+
+    if (goal === 'fat_loss')
+      return primary ? 12 : 15;
 
     return 10;
   }
 
-
   private resolveLoad(
-    exercise: ExerciseCandidate,
+    _exercise: ExerciseCandidate,
     phase: string,
-    reps: number,
+    goal: string,
     progressionData?: {
       suggested_next_1rm?: number;
     },
@@ -127,25 +137,30 @@ export class AdaptiveWorkoutEngine {
 
     let percent = 0.7;
 
-    if (phase === 'base') percent = 0.7;
-    if (phase === 'intensification') percent = 0.8;
-    if (phase === 'peak') percent = 0.9;
-    if (phase === 'deload') percent = 0.6;
+    if (goal === 'strength') percent = 0.9;
+    if (goal === 'hypertrophy') percent = 0.75;
+    if (goal === 'endurance') percent = 0.6;
+    if (goal === 'fat_loss') percent = 0.65;
+
+    if (phase === 'deload') percent -= 0.1;
 
     if (overreach) percent -= 0.05;
 
     return Number((oneRM * percent).toFixed(1));
   }
 
+  private resolveRest(
+    _phase: string,
+    goal: string,
+  ) {
 
-  private resolveRest(phase: string) {
-    if (phase === 'peak') return 150;
-    if (phase === 'intensification') return 120;
-    if (phase === 'base') return 90;
-    if (phase === 'deload') return 60;
+    if (goal === 'strength') return 180;
+    if (goal === 'hypertrophy') return 90;
+    if (goal === 'endurance') return 45;
+    if (goal === 'fat_loss') return 30;
+
     return 90;
   }
-
 
   private detectOverreaching(
     profile?: Record<

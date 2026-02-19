@@ -8,344 +8,335 @@ import { AdaptiveWorkoutEngine } from 'src/training-engine/adaptive-workout.engi
 import { ExercisePrescription } from 'src/progression-engine/progression.types';
 
 interface ProgramDay {
-    dayOrder: number;
-    exercises: ExercisePrescription[];
+  dayOrder: number;
+  name: string;
+  muscleGroups: string[];
+  goals: string[];
+  exercises: ExercisePrescription[];
 }
-
 
 @Injectable()
 export class ProgramOrchestratorService {
-    private supabase = createClient(
-        process.env.SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  private supabase = createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
+
+  constructor(
+    private readonly programGenerator: ProgramGeneratorService,
+    private readonly progressionEngine: ProgressionEngineService,
+    private readonly adaptiveEngine: AdaptiveWorkoutEngine,
+  ) { }
+
+  async generateProgram(payload: {
+    userId: string;
+    goal: 'hypertrophy' | 'strength' | 'endurance';
+    experienceLevel: string;
+    totalWeeks: number;
+    weeklyFrequency: number;
+    equipment?: string[];
+    workoutType: 'ppl' | 'upper_lower' | 'full_body';
+  }) {
+
+    const { userId, totalWeeks, weeklyFrequency } = payload;
+
+    const phaseSchedule = this.resolvePhases(totalWeeks);
+    const targetVolume = this.resolveVolume(payload.goal);
+
+    const splitStructure = this.resolveSplit(
+      payload.workoutType,
+      weeklyFrequency,
     );
 
-    constructor(
-        private readonly programGenerator: ProgramGeneratorService,
-        private readonly progressionEngine: ProgressionEngineService,
-        private readonly adaptiveEngine: AdaptiveWorkoutEngine,
-    ) { }
+    const allWeeks: any[] = [];
 
-    async generateProgram(payload: {
-        userId: string;
-        goal: 'hypertrophy' | 'strength' | 'endurance';
-        experienceLevel: string;
-        totalWeeks: number;
-        equipment?: string[];
-        split: 'ppl' | 'upper_lower' | 'full_body';
-    }) {
+    const { data: progressionProfile } =
+      await this.supabase
+        .from('exercise_progression_profile')
+        .select('*')
+        .eq('user_id', userId);
 
-        const { userId, totalWeeks } = payload;
+    const progressionMap: Record<string, any> = {};
+    progressionProfile?.forEach(p => {
+      progressionMap[p.exercise_id] = p;
+    });
 
-        const phaseSchedule = this.resolvePhases(totalWeeks);
-        const allWeeks: any[] = [];
+    for (const phaseInfo of phaseSchedule) {
 
-        const targetVolume = this.resolveVolume(payload.goal);
-        const splitStructure = this.resolveSplit(payload.split);
+      const baseWeek = await this.programGenerator.generateWeek({
+        days: splitStructure,
+        level: payload.experienceLevel,
+        equipment: payload.equipment,
+        baseContext: {
+          goal: payload.goal,
+          phaseType: phaseInfo.phase,
+          weekNumber: phaseInfo.weekNumber,
+          usedExercisesLastWeeks: [],
+          fatigueLimit: 12,
+          targetWeeklyVolume: targetVolume,
+          weeklyFrequency,
+        },
+        targetWeeklyVolume: targetVolume,
+      });
 
-        // Buscar profile adaptativo do usuário
-        const { data: progressionProfile } =
-            await this.supabase
-                .from('exercise_progression_profile')
-                .select('*')
-                .eq('user_id', userId);
+      const adaptedDays: ProgramDay[] = [];
 
-        const progressionMap: Record<string, any> = {};
+      for (let dayIndex = 0; dayIndex < baseWeek.weekPlan.length; dayIndex++) {
 
-        progressionProfile?.forEach(p => {
-            progressionMap[p.exercise_id] = p;
-        });
+        const exercises = baseWeek.weekPlan[dayIndex];
+        if (!splitStructure[dayIndex]) continue;
+        const slots = splitStructure[dayIndex].slots;
 
-        for (const phaseInfo of phaseSchedule) {
-
-            const baseWeek = await this.programGenerator.generateWeek({
-                days: splitStructure,
-                level: payload.experienceLevel,
-                equipment: payload.equipment,
-                baseContext: {
-                    goal: payload.goal,
-                    phaseType: phaseInfo.phase,
-                    weekNumber: phaseInfo.weekNumber,
-                    usedExercisesLastWeeks: [],
-                    fatigueLimit: 12,
-                    targetWeeklyVolume: targetVolume,
-                    weeklyFrequency: splitStructure.length,
-                },
-                targetWeeklyVolume: targetVolume,
-            });
-
-            const adaptedDays: ProgramDay[] = [];
-
-            for (let dayIndex = 0; dayIndex < baseWeek.weekPlan.length; dayIndex++) {
-
-                const exercises = baseWeek.weekPlan[dayIndex];
-
-                const prescription =
-                    this.adaptiveEngine.buildPrescription({
-                        exercises,
-                        phase: phaseInfo.phase,
-                        progressionProfile: progressionMap,
-                    });
-
-                adaptedDays.push({
-                    dayOrder: dayIndex + 1,
-                    exercises: prescription,
-                });
-            }
-
-            allWeeks.push({
-                weekNumber: phaseInfo.weekNumber,
-                phase: phaseInfo.phase,
-                days: adaptedDays,
-            });
-        }
-
-        const programId = await this.persistProgram(
-            userId,
-            allWeeks,
-            payload,
-        );
-
-        return {
-            programId,
-            weeks: allWeeks,
-        };
-    }
-
-    async getProgram(programId: string, userId: string) {
-        const { data, error } = await this.supabase
-            .from('full_training_program_view')
-            .select('*')
-            .eq('program_id', programId)
-            .eq('user_id', userId)
-            .single();
-
-        if (error) throw error;
-
-        return {
-            id: data.program_id,
-            name: data.program_name,
-            totalWeeks: data.total_weeks,
-            split: data.split,
-            phases: data.phases ?? [],
-            weeks: data.weeks ?? [],
-        };
-    }
-
-    private resolveSplit(split: string) {
-        if (split === 'ppl') {
-            return [
-                {
-                    slots: [
-                        'horizontal_press',
-                        'horizontal_press',
-                        'vertical_press',
-                        'shoulder_abduction',
-                        'triceps',
-                        'triceps'
-                    ]
-                },
-                {
-                    slots: [
-                        'vertical_pull',
-                        'vertical_pull',
-                        'horizontal_pull',
-                        'biceps',
-                        'biceps',
-                        'biceps'
-                    ]
-                },
-                {
-                    slots: [
-                        'squat',
-                        'hip_hinge',
-                        'calves'
-                    ]
-                },
-            ];
-        }
-
-        if (split === 'upper_lower') {
-            return [
-                {
-                    slots: [
-                        'horizontal_press',
-                        'vertical_pull',
-                        'triceps',
-                        'biceps'
-                    ]
-                },
-                {
-                    slots: [
-                        'squat',
-                        'hip_hinge',
-                        'calves'
-                    ]
-                },
-            ];
-        }
-
-        return [
-            {
-                slots: [
-                    'horizontal_press',
-                    'vertical_pull',
-                    'squat'
-                ]
-            },
-            {
-                slots: [
-                    'vertical_press',
-                    'horizontal_pull',
-                    'hip_hinge'
-                ]
-            },
-            {
-                slots: [
-                    'squat',
-                    'biceps',
-                    'triceps'
-                ]
-            },
-        ];
-    }
-
-    private resolveVolume(goal: string) {
-        if (goal === 'hypertrophy') {
-            return {
-                chest: 12,
-                back: 14,
-                shoulders: 10,
-                biceps: 8,
-                triceps: 8,
-                quads: 12,
-                hamstrings: 10,
-                glutes: 8,
-                calves: 6,
-                abs: 6,
-            };
-        }
-
-        return {
-            chest: 8,
-            back: 10,
-            shoulders: 6,
-            biceps: 6,
-            triceps: 6,
-            quads: 8,
-            hamstrings: 8,
-            glutes: 6,
-            calves: 4,
-            abs: 4,
-        };
-    }
-
-    private resolvePhases(totalWeeks: number): {
-        weekNumber: number;
-        phase: PhaseType;
-    }[] {
-        const schedule: {
-            weekNumber: number;
-            phase: PhaseType;
-        }[] = [];
-
-        let currentWeek = 1;
-
-        const phaseBlocks =
-            totalWeeks <= 4
-                ? [{ type: 'base' as PhaseType, weeks: totalWeeks }]
-                : totalWeeks <= 12
-                    ? [
-                        { type: 'base' as PhaseType, weeks: 4 },
-                        { type: 'intensification' as PhaseType, weeks: 4 },
-                        { type: 'peak' as PhaseType, weeks: totalWeeks - 8 },
-                    ]
-                    : [
-                        { type: 'base' as PhaseType, weeks: 6 },
-                        { type: 'intensification' as PhaseType, weeks: 8 },
-                        { type: 'peak' as PhaseType, weeks: totalWeeks - 14 },
-                        { type: 'deload' as PhaseType, weeks: 1 },
-                    ];
-
-        for (const block of phaseBlocks) {
-            for (let i = 0; i < block.weeks; i++) {
-                schedule.push({
-                    weekNumber: currentWeek,
-                    phase: block.type,
-                });
-                currentWeek++;
-            }
-        }
-
-        return schedule;
-    }
-
-    private buildPhaseRanges(program: any[]) {
-        const phases: {
-            phase: PhaseType;
-            startWeek: number;
-            endWeek: number;
-        }[] = [];
-
-        if (!program.length) return phases;
-
-        let currentPhase: PhaseType = program[0].phase;
-        let startWeek = program[0].weekNumber;
-
-        for (let i = 1; i < program.length; i++) {
-            if (program[i].phase !== currentPhase) {
-                phases.push({
-                    phase: currentPhase,
-                    startWeek,
-                    endWeek: program[i - 1].weekNumber,
-                });
-
-                currentPhase = program[i].phase;
-                startWeek = program[i].weekNumber;
-            }
-        }
-
-        phases.push({
-            phase: currentPhase,
-            startWeek,
-            endWeek: program[program.length - 1].weekNumber,
-        });
-
-        return phases;
-    }
-
-    private async persistProgram(
-        userId: string,
-        program: any[],
-        payload: any,
-    ) {
-        const programId = uuidv4();
-
-        const phaseRanges = this.buildPhaseRanges(program);
-
-        const rpcPayload = {
-            programId,
-            userId,
-            name: `Programa ${payload.goal}`,
-            split: payload.split,
+        const prescription =
+          this.adaptiveEngine.buildPrescription({
+            exercises,
+            phase: phaseInfo.phase,
+            progressionProfile: progressionMap,
             goal: payload.goal,
-            experienceLevel: payload.experienceLevel,
-            totalWeeks: payload.totalWeeks,
-            weeklyFrequency: this.resolveSplit(payload.split).length,
-            sessionDuration: 60,
-            phases: phaseRanges,
-            weeks: program,
-        };
+          });
 
-        const { error } = await this.supabase.rpc(
-            'create_full_training_program',
-            { payload: rpcPayload }
-        );
+        const musclesOfDay = this.extractMusclesFromSlots(slots);
 
-        if (error) throw error;
+        adaptedDays.push({
+          dayOrder: dayIndex + 1,
+          name: `Semana ${phaseInfo.weekNumber} - Dia ${dayIndex + 1} (${musclesOfDay.join(' e ')})`,
+          muscleGroups: musclesOfDay,
+          goals: [payload.goal],
+          exercises: prescription,
+        });
+      }
 
-        return programId;
+      allWeeks.push({
+        weekNumber: phaseInfo.weekNumber,
+        phase: phaseInfo.phase,
+        days: adaptedDays,
+      });
     }
+
+    const programId = await this.persistProgram(
+      userId,
+      allWeeks,
+      payload,
+    );
+
+    return {
+      protocol: {
+        id: programId,
+        name: `Protocolo ${payload.totalWeeks} semanas - ${payload.goal.toUpperCase()}`,
+        goal: payload.goal,
+        workoutType: payload.workoutType,
+        totalWeeks: payload.totalWeeks,
+        weeklyFrequency: payload.weeklyFrequency,
+        weeks: allWeeks,
+        createdAt: new Date().toISOString()
+      }
+    };
+  }
+
+  async getProgram(programId: string, userId: string) {
+    const { data, error } = await this.supabase
+      .from('training_programs')
+      .select('*')
+      .eq('id', programId)
+      .eq('user_id', userId)
+      .single();
+
+    if (error) throw error;
+
+    return data;
+  }
+
+  private resolveSplit(type: string, weeklyFrequency: number) {
+
+    if (type === 'ppl') {
+      const base = [
+        { slots: ['horizontal_press', 'vertical_press', 'triceps'] },
+        { slots: ['vertical_pull', 'horizontal_pull', 'biceps'] },
+        { slots: ['squat', 'hip_hinge', 'abs'] },
+      ];
+
+      return this.distributeByFrequency(base, weeklyFrequency);
+    }
+
+    if (type === 'upper_lower') {
+      const base = [
+        { slots: ['horizontal_press', 'vertical_pull', 'triceps', 'biceps'] },
+        { slots: ['squat', 'hip_hinge', 'abs'] },
+      ];
+
+      return this.distributeByFrequency(base, weeklyFrequency);
+    }
+
+    const full = [
+      { slots: ['horizontal_press', 'vertical_pull', 'squat', 'abs'] }
+    ];
+
+    return Array.from({ length: weeklyFrequency }, () => full[0]);
+  }
+
+  private distributeByFrequency(base: any[], frequency: number) {
+    const result: any[] = [];
+    for (let i = 0; i < frequency; i++) {
+      result.push(base[i % base.length]);
+    }
+    return result;
+  }
+
+  private extractMusclesFromSlots(slots: string[]) {
+
+    const map: Record<string, string> = {
+      horizontal_press: 'Peito',
+      vertical_press: 'Ombro',
+      triceps: 'Tríceps',
+      vertical_pull: 'Costas',
+      horizontal_pull: 'Costas',
+      biceps: 'Bíceps',
+      squat: 'Quadríceps',
+      hip_hinge: 'Posterior',
+      abs: 'Abdômen',
+    };
+
+    return [...new Set(
+      slots.map(s => map[s]).filter(Boolean)
+    )];
+  }
+
+  private resolveVolume(goal: string) {
+
+    if (goal === 'hypertrophy') {
+      return {
+        chest: 12,
+        back: 14,
+        shoulders: 10,
+        biceps: 8,
+        triceps: 8,
+        quads: 12,
+        hamstrings: 10,
+        calves: 6,
+        abs: 6,
+      };
+    }
+
+    if (goal === 'strength') {
+      return {
+        chest: 8,
+        back: 10,
+        shoulders: 6,
+        biceps: 6,
+        triceps: 6,
+        quads: 8,
+        hamstrings: 8,
+        calves: 4,
+        abs: 4,
+      };
+    }
+
+    return {
+      chest: 10,
+      back: 12,
+      shoulders: 8,
+      biceps: 8,
+      triceps: 8,
+      quads: 10,
+      hamstrings: 10,
+      calves: 6,
+      abs: 8,
+    };
+  }
+
+  private resolvePhases(totalWeeks: number) {
+
+    const schedule: { weekNumber: number; phase: PhaseType }[] = [];
+    let currentWeek = 1;
+
+    const blocks =
+      totalWeeks <= 4
+        ? [{ type: 'base' as PhaseType, weeks: totalWeeks }]
+        : [
+          { type: 'base' as PhaseType, weeks: 4 },
+          { type: 'intensification' as PhaseType, weeks: 4 },
+          { type: 'peak' as PhaseType, weeks: totalWeeks - 8 },
+        ];
+
+    for (const block of blocks) {
+      for (let i = 0; i < block.weeks; i++) {
+        schedule.push({
+          weekNumber: currentWeek++,
+          phase: block.type,
+        });
+      }
+    }
+
+    return schedule;
+  }
+
+  private buildPhaseRanges(program: any[]) {
+    const phases: {
+      phase: PhaseType;
+      startWeek: number;
+      endWeek: number;
+    }[] = [];
+
+    if (!program.length) return phases;
+
+    let currentPhase: PhaseType = program[0].phase;
+    let startWeek = program[0].weekNumber;
+
+    for (let i = 1; i < program.length; i++) {
+      if (program[i].phase !== currentPhase) {
+        phases.push({
+          phase: currentPhase,
+          startWeek,
+          endWeek: program[i - 1].weekNumber,
+        });
+
+        currentPhase = program[i].phase;
+        startWeek = program[i].weekNumber;
+      }
+    }
+
+    phases.push({
+      phase: currentPhase,
+      startWeek,
+      endWeek: program[program.length - 1].weekNumber,
+    });
+
+    return phases;
+  }
+
+  private async persistProgram(
+    userId: string,
+    program: any[],
+    payload: any,
+  ) {
+
+    const programId = uuidv4();
+
+    const phaseRanges = this.buildPhaseRanges(program);
+
+    const rpcPayload = {
+      programId,
+      userId,
+      name: `Protocolo ${payload.totalWeeks} semanas - ${payload.goal.toUpperCase()}`,
+      split: payload.workoutType,
+      goal: payload.goal,
+      experienceLevel: payload.experienceLevel,
+      totalWeeks: payload.totalWeeks,
+      weeklyFrequency: payload.weeklyFrequency,
+      sessionDuration: 60,
+      phases: phaseRanges,
+      weeks: program,
+    };
+
+    const { error } = await this.supabase.rpc(
+      'create_full_training_program',
+      { payload: rpcPayload }
+    );
+
+    if (error) throw error;
+
+    return programId;
+  }
 
 
 }
