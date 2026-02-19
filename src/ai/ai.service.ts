@@ -175,4 +175,63 @@ FORMATO:
     }
   }
 
+  async generateLibraryVariations(
+    level: string,
+    slots: string[],
+    equipment?: string[],
+  ) {
+
+    const prompt = `
+Gere 10 exercícios de musculação para academia.
+
+Nível: ${level}
+Slots: ${slots.join(',')}
+Equipamentos disponíveis: ${equipment?.join(',') ?? 'todos'}
+
+Formato JSON puro:
+[
+  {
+    "name": "string",
+    "muscle_groups": ["string"],
+    "movement_pattern": "string",
+    "equipment": "string",
+    "difficulty_level": "string",
+    "priority_type": "primary" | "secondary",
+    "fatigue_score": number,
+    "stimulus_type": "mechanical_tension" | "metabolic",
+    "is_compound": boolean,
+    "unilateral": boolean,
+    "muscle_contributions": [
+      { "muscle": "string", "weight": number }
+    ]
+  }
+]
+`;
+
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      response_format: { type: 'json_object' },
+      temperature: 0.7,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Você é um especialista em biomecânica criando exercícios para banco de dados.',
+        },
+        { role: 'user', content: prompt },
+      ],
+    });
+
+    const content = response.choices?.[0]?.message?.content;
+
+    if (!content) return [];
+
+    try {
+      const parsed = JSON.parse(content);
+      return parsed;
+    } catch {
+      return [];
+    }
+  }
+
 }

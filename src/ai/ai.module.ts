@@ -7,5 +7,6 @@ import { WorkoutPlansModule } from '../workout-plans/workout-plans.module';
   imports: [WorkoutPlansModule],
   controllers: [AiController],
   providers: [AiService],
+  exports: [AiService],
 })
 export class AiModule { }
