@@ -416,9 +416,14 @@ export class WorkoutPlansService {
     };
   }
 
-  async listPublicPlans(req) {
+  async listPublicPlans(req, pagination: PaginationDto) {
     const supabase = req.supabase;
     const userId = req.user.id;
+
+    const page = pagination.page ?? 1;
+    const limit = pagination.limit ?? 10;
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
 
     const { data: lastMeasurement, error: measurementError } =
       await supabase
@@ -433,32 +438,46 @@ export class WorkoutPlansService {
       throw new InternalServerErrorException(measurementError.message);
     }
 
-    const { data: likes, error: likesError } = await supabase
+    const weight = lastMeasurement?.weight_kg ?? null;
+
+    const { data: plans, count, error: plansError } = await supabase
+      .from('workout_plans')
+      .select('*', { count: 'exact' })
+      .eq('is_public', true)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (plansError) throw plansError;
+    if (!plans?.length) {
+      return {
+        data: [],
+        meta: {
+          total: count ?? 0,
+          page,
+          lastPage: 0,
+        },
+      };
+    }
+
+    const planIds = plans.map((p) => p.id);
+
+    const { data: userLikes, error: likesError } = await supabase
       .from('workout_plan_likes')
       .select('workout_plan_id')
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .in('workout_plan_id', planIds);
 
-    const { data: favorites, error: favError } = await supabase
+    const { data: userFavorites, error: favError } = await supabase
       .from('workout_plan_favorites')
       .select('workout_plan_id')
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .in('workout_plan_id', planIds);
 
     if (likesError) throw likesError;
     if (favError) throw favError;
 
-    const likedSet = new Set((likes ?? []).map((l) => l.workout_plan_id));
-    const favoriteSet = new Set((favorites ?? []).map((f) => f.workout_plan_id));
-
-    const { data: plans, error: plansError } = await supabase
-      .from('workout_plans')
-      .select('*')
-      .eq('is_public', true)
-      .order('created_at', { ascending: false });
-
-    if (plansError) throw plansError;
-    if (!plans?.length) return [];
-
-    const planIds = plans.map((p) => p.id);
+    const likedSet = new Set((userLikes ?? []).map((l) => l.workout_plan_id));
+    const favoriteSet = new Set((userFavorites ?? []).map((f) => f.workout_plan_id));
 
     const { data: allLikes } = await supabase
       .from('workout_plan_likes')
@@ -483,17 +502,17 @@ export class WorkoutPlansService {
       return acc;
     }, {} as Record<string, any[]>);
 
-    return plans.map((plan) => {
+    const enrichedPlans = plans.map((plan) => {
       const planExercises = exercisesByPlan[plan.id] ?? [];
       const durationMinutes = plan.training_time
         ? Number(plan.training_time)
         : this.calculatePlanDurationMinutes(planExercises);
 
       const primaryGoal = Array.isArray(plan.goals) ? plan.goals[0] : plan.goals;
-      const met = this.getMetByGoal(primaryGoal);
+      const met = this.getMetByGoal(primaryGoal?.toLowerCase?.());
 
       const calories = this.calculateCaloriesBurned(
-        lastMeasurement?.weight_kg,
+        weight,
         durationMinutes,
         met,
       );
@@ -508,6 +527,15 @@ export class WorkoutPlansService {
         likes_count: likesCountMap[plan.id] ?? 0,
       };
     });
+
+    return {
+      data: enrichedPlans,
+      meta: {
+        total: count ?? 0,
+        page,
+        lastPage: Math.ceil((count ?? 0) / limit),
+      },
+    };
   }
 
   async toggleLike(req, planId: string) {

@@ -33,7 +33,7 @@ import { ActiveWorkoutSessionResponse } from './dto/active-workout-session.dto';
 @Controller('workout-plans')
 @UseGuards(SupabaseAuthGuard)
 export class WorkoutPlansController {
-  constructor(private readonly service: WorkoutPlansService) {}
+  constructor(private readonly service: WorkoutPlansService) { }
 
   @Get('liked')
   @ApiOperation({
@@ -85,8 +85,17 @@ export class WorkoutPlansController {
     description: 'Returns all publicly available workout plans from any user, enriched with calorie estimates and like/favorite status.',
   })
   @ApiResponse({ status: 200, description: 'Public plans retrieved successfully.' })
-  listPublic(@Req() req) {
-    return this.service.listPublicPlans(req);
+  async listPublic(
+    @Req() req,
+    @Res() res,
+    @Query() pagination: PaginationDto,
+  ) {
+    try {
+      const response = await this.service.listPublicPlans(req, pagination);
+      return res.status(200).json(response);
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
   }
 
   @Post(':id/like')
