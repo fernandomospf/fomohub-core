@@ -69,7 +69,7 @@ export class AiService {
         model: 'gpt-4o-mini',
         response_format: { type: 'json_object' },
         temperature: 0.6,
-        max_tokens: 800,
+        max_tokens: 2000,
         messages: [
           {
             role: 'system',
@@ -99,6 +99,10 @@ REGRAS:
 - weight deve ser número
 - reps deve ser apenas número (ex: 10) ⚠️ NÃO usar "8-10"
 - Nome do treino deve ter a flag [AI] no inicio
+- fatigue_score entre 1-10
+- priority_type: "primary" ou "secondary"
+- stimulus_type: "mechanical_tension", "metabolic" ou "hybrid"
+- muscle_contributions: lista de músculos com contribuição percentual (0.0 a 1.0), soma deve ser 1.0
 
 FORMATO:
 {
@@ -114,7 +118,19 @@ FORMATO:
       "sets": number,
       "reps": number,
       "weight": number,
-      "restTimeSeconds": number
+      "restTimeSeconds": number,
+      "muscle_groups": ["string"],
+      "movement_pattern": "string",
+      "equipment": "string",
+      "difficulty_level": "beginner" | "intermediate" | "advanced",
+      "priority_type": "primary" | "secondary",
+      "fatigue_score": number,
+      "stimulus_type": "mechanical_tension" | "metabolic" | "hybrid",
+      "is_compound": boolean,
+      "unilateral": boolean,
+      "muscle_contributions": [
+        { "muscle": "string", "weight": number }
+      ]
     }
   ]
 }
@@ -131,12 +147,44 @@ FORMATO:
 
       const parsed = JSON.parse(content);
 
-      parsed.exercises = parsed.exercises.map((e: any) => ({
+      const rawExercises: any[] = parsed.exercises ?? [];
+
+      parsed.exercises = rawExercises.map((e: any) => ({
         name: e.name,
         sets: Number(e.sets),
         reps: Number(e.reps),
         weight: Number(e.weight ?? 0),
         restTimeSeconds: Number(e.restTimeSeconds),
+      }));
+
+      const libraryRows = rawExercises.map((e: any) => ({
+        name: e.name,
+        muscle_groups: Array.isArray(e.muscle_groups) ? e.muscle_groups : [],
+        movement_pattern: e.movement_pattern ?? 'unknown',
+        equipment: e.equipment ?? 'unknown',
+        difficulty_level: e.difficulty_level ?? 'intermediate',
+        priority_type: e.priority_type ?? 'secondary',
+        fatigue_score: Number(e.fatigue_score ?? 5),
+        stimulus_type: e.stimulus_type ?? 'hybrid',
+        is_compound: e.is_compound ?? false,
+        unilateral: e.unilateral ?? false,
+        muscle_contributions: Array.isArray(e.muscle_contributions)
+          ? e.muscle_contributions
+          : [],
+      }));
+
+      const { data: upsertedExercises } = await supabase
+        .from('exercise_library')
+        .upsert(libraryRows, { onConflict: 'name', ignoreDuplicates: false })
+        .select('id, name');
+
+      const libraryMap = new Map<string, string>(
+        (upsertedExercises ?? []).map((ex) => [ex.name.toLowerCase(), ex.id]),
+      );
+
+      parsed.exercises = parsed.exercises.map((e: any) => ({
+        ...e,
+        exerciseId: libraryMap.get(e.name.toLowerCase()) ?? undefined,
       }));
 
       const plan = await this.workoutPlansService.createPlan(req, parsed);
@@ -152,6 +200,7 @@ FORMATO:
       throw new InternalServerErrorException('Erro ao gerar treino com IA');
     }
   }
+
 
   async remainingUserCredit(req: AuthenticateRequest) {
     const supabase = req.supabase;

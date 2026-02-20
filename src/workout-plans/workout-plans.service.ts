@@ -57,6 +57,7 @@ export class WorkoutPlansService {
       reps: e.reps,
       weight: e.weight,
       rest_time_seconds: e.restTimeSeconds,
+      exercise_id: e.exerciseId ?? null,
     }));
 
     const { error: exError } = await req.supabase
@@ -78,7 +79,15 @@ export class WorkoutPlansService {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    const userFitnessData = await this.getUserFitnessData(req, userId);
+    const { data: lastMeasurement } = await supabase
+      .from('body_measurements')
+      .select('weight_kg')
+      .eq('user_id', userId)
+      .order('measured_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const weight = lastMeasurement?.weight_kg ?? null;
 
     const { data: plans, count, error } = await supabase
       .from('workout_plans')
@@ -136,16 +145,20 @@ export class WorkoutPlansService {
     }, {} as Record<string, number>);
 
     const enrichedPlans = plans.map(plan => {
-      const met = this.getMetByPlan(plan);
-      const calories = this.calculateCaloriesBurned(
-        userFitnessData?.weight_kg,
-        Number(plan.training_time),
-        met,
-      );
+      const exercises = plan.workout_exercises ?? [];
+      const durationMinutes = plan.training_time
+        ? Number(plan.training_time)
+        : this.calculatePlanDurationMinutes(exercises);
+
+      const primaryGoal = Array.isArray(plan.goals) ? plan.goals[0] : plan.goals;
+      const met = this.getMetByGoal(primaryGoal?.toLowerCase?.());
+
+      const calories = this.calculateCaloriesBurned(weight, durationMinutes, met);
 
       return {
         ...plan,
         calories,
+        estimated_duration_minutes: Math.round(durationMinutes),
         is_liked: likedSet.has(plan.id),
         is_favorited: favoriteSet.has(plan.id),
         likes_count: likesCountMap[plan.id] ?? 0,
@@ -610,10 +623,8 @@ export class WorkoutPlansService {
 
     const weightKg = lastMeasurement?.weight_kg ?? null;
 
-    const met = this.getMetByPlan({
-      goals,
-      muscle_groups,
-    });
+    const primaryGoal = Array.isArray(goals) ? goals[0] : goals;
+    const met = this.getMetByGoal(primaryGoal?.toLowerCase?.());
 
     const calories = this.calculateCaloriesBurned(
       weightKg,
@@ -1167,14 +1178,17 @@ export class WorkoutPlansService {
       ? plan.muscle_groups
       : [];
 
+    const goalsLower = goals.map((g: string) => g?.toLowerCase?.() ?? '');
+    const muscleGroupsLower = muscleGroups.map((m: string) => m?.toLowerCase?.() ?? '');
+
     let baseMet = 3.5;
 
-    if (goals.includes('Hipertrofia')) baseMet = 5.0;
-    if (goals.includes('Forca')) baseMet = 6.0;
-    if (goals.includes('Emagrecimento')) baseMet = 6.5;
+    if (goalsLower.includes('hipertrofia')) baseMet = 5.0;
+    if (goalsLower.includes('forca') || goalsLower.includes('força')) baseMet = 6.0;
+    if (goalsLower.includes('emagrecimento')) baseMet = 6.5;
 
-    if (muscleGroups.includes('Pernas')) baseMet += 1.0;
-    if (muscleGroups.includes('Costas')) baseMet += 0.5;
+    if (muscleGroupsLower.includes('pernas')) baseMet += 1.0;
+    if (muscleGroupsLower.includes('costas')) baseMet += 0.5;
 
     return baseMet;
   }
