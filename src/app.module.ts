@@ -9,6 +9,7 @@ import { ProgressionEngineModule } from './progression-engine/progression-engine
 import { ExerciseLibraryModule } from './exercise-library/exercise-library.module';
 import { SupabaseModule } from './supabase/supabase.module';
 import { ProgramGeneratorModule } from './program-generator/program-generator.module';
+import { EventsModule } from './events/events.module';
 
 @Module({
   imports: [
@@ -21,7 +22,8 @@ import { ProgramGeneratorModule } from './program-generator/program-generator.mo
     ProgressionEngineModule,
     ExerciseLibraryModule,
     SupabaseModule,
-    ProgramGeneratorModule
+    ProgramGeneratorModule,
+    EventsModule,
   ],
 })
 
