@@ -17,10 +17,20 @@ interface ProgramDay {
 
 @Injectable()
 export class ProgramOrchestratorService {
-  private supabase = createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
+  private _supabaseClient: any;
+
+  private get supabase() {
+    if (!this._supabaseClient) {
+      if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        throw new Error('Supabase environment variables (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY) are missing.');
+      }
+      this._supabaseClient = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY,
+      );
+    }
+    return this._supabaseClient;
+  }
 
   constructor(
     private readonly programGenerator: ProgramGeneratorService,
