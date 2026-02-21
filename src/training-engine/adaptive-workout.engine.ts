@@ -16,7 +16,7 @@ export class AdaptiveWorkoutEngine {
   buildPrescription(params: {
     exercises: ExerciseCandidate[];
     phase: string;
-    goal: 'hypertrophy' | 'strength' | 'endurance' | 'fat_loss';
+    goals: string[];
     progressionProfile?: Record<
       string,
       {
@@ -37,19 +37,19 @@ export class AdaptiveWorkoutEngine {
       const sets = this.resolveSets(
         exercise,
         params.phase,
-        params.goal,
+        params.goals,
         isOverreaching,
       );
 
       const reps = this.resolveReps(
         exercise,
-        params.goal,
+        params.goals,
       );
 
       const load = this.resolveLoad(
         exercise,
         params.phase,
-        params.goal,
+        params.goals,
         params.progressionProfile?.[exercise.id],
         isOverreaching,
       );
@@ -62,7 +62,7 @@ export class AdaptiveWorkoutEngine {
         suggestedLoad: load,
         restSeconds: this.resolveRest(
           params.phase,
-          params.goal,
+          params.goals,
         ),
       });
     }
@@ -73,7 +73,7 @@ export class AdaptiveWorkoutEngine {
   private resolveSets(
     exercise: ExerciseCandidate,
     phase: string,
-    goal: string,
+    goals: string[],
     overreach: boolean,
   ) {
 
@@ -81,49 +81,45 @@ export class AdaptiveWorkoutEngine {
 
     const primary =
       exercise.priority_type === 'primary';
+      
+    let totalSets = 0;
 
-    if (goal === 'strength')
-      return primary ? 5 : 3;
+    for (const goal of goals) {
+      if (goal === 'strength') totalSets += primary ? 5 : 3;
+      else if (goal === 'hypertrophy') totalSets += primary ? 4 : 3;
+      else if (goal === 'endurance') totalSets += 3;
+      else if (goal === 'fat_loss') totalSets += 3;
+      else totalSets += 3;
+    }
 
-    if (goal === 'hypertrophy')
-      return primary ? 4 : 3;
-
-    if (goal === 'endurance')
-      return 3;
-
-    if (goal === 'fat_loss')
-      return 3;
-
-    return 3;
+    return Math.round(totalSets / goals.length);
   }
 
   private resolveReps(
     exercise: ExerciseCandidate,
-    goal: string,
+    goals: string[],
   ) {
 
     const primary =
       exercise.priority_type === 'primary';
+      
+    let totalReps = 0;
 
-    if (goal === 'strength')
-      return primary ? 4 : 6;
+    for (const goal of goals) {
+      if (goal === 'strength') totalReps += primary ? 4 : 6;
+      else if (goal === 'hypertrophy') totalReps += primary ? 8 : 12;
+      else if (goal === 'endurance') totalReps += primary ? 15 : 18;
+      else if (goal === 'fat_loss') totalReps += primary ? 12 : 15;
+      else totalReps += 10;
+    }
 
-    if (goal === 'hypertrophy')
-      return primary ? 8 : 12;
-
-    if (goal === 'endurance')
-      return primary ? 15 : 18;
-
-    if (goal === 'fat_loss')
-      return primary ? 12 : 15;
-
-    return 10;
+    return Math.round(totalReps / goals.length);
   }
 
   private resolveLoad(
     _exercise: ExerciseCandidate,
     phase: string,
-    goal: string,
+    goals: string[],
     progressionData?: {
       suggested_next_1rm?: number;
     },
@@ -135,31 +131,40 @@ export class AdaptiveWorkoutEngine {
 
     if (!oneRM) return 0;
 
-    let percent = 0.7;
+    let totalPercent = 0;
 
-    if (goal === 'strength') percent = 0.9;
-    if (goal === 'hypertrophy') percent = 0.75;
-    if (goal === 'endurance') percent = 0.6;
-    if (goal === 'fat_loss') percent = 0.65;
+    for (const goal of goals) {
+      let percent = 0.7;
+      if (goal === 'strength') percent = 0.9;
+      if (goal === 'hypertrophy') percent = 0.75;
+      if (goal === 'endurance') percent = 0.6;
+      if (goal === 'fat_loss') percent = 0.65;
+      totalPercent += percent;
+    }
+    
+    let avgPercent = totalPercent / goals.length;
 
-    if (phase === 'deload') percent -= 0.1;
+    if (phase === 'deload') avgPercent -= 0.1;
+    if (overreach) avgPercent -= 0.05;
 
-    if (overreach) percent -= 0.05;
-
-    return Number((oneRM * percent).toFixed(1));
+    return Number((oneRM * avgPercent).toFixed(1));
   }
 
   private resolveRest(
     _phase: string,
-    goal: string,
+    goals: string[],
   ) {
+    let totalRest = 0;
 
-    if (goal === 'strength') return 180;
-    if (goal === 'hypertrophy') return 90;
-    if (goal === 'endurance') return 45;
-    if (goal === 'fat_loss') return 30;
+    for (const goal of goals) {
+      if (goal === 'strength') totalRest += 180;
+      else if (goal === 'hypertrophy') totalRest += 90;
+      else if (goal === 'endurance') totalRest += 45;
+      else if (goal === 'fat_loss') totalRest += 30;
+      else totalRest += 90;
+    }
 
-    return 90;
+    return Math.round(totalRest / goals.length);
   }
 
   private detectOverreaching(

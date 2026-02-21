@@ -40,7 +40,7 @@ export class ProgramOrchestratorService {
 
   async generateProgram(payload: {
     userId: string;
-    goal: 'hypertrophy' | 'strength' | 'endurance';
+    goals: string[];
     experienceLevel: string;
     totalWeeks: number;
     weeklyFrequency: number;
@@ -48,10 +48,18 @@ export class ProgramOrchestratorService {
     workoutType: 'ppl' | 'upper_lower' | 'full_body';
   }) {
 
-    const { userId, totalWeeks, weeklyFrequency } = payload;
+    if ((payload as any).goal && !payload.goals) {
+      payload.goals = [(payload as any).goal];
+    }
+    if (!payload.goals || payload.goals.length === 0) {
+      payload.goals = ['hypertrophy'];
+    }
+
+    const { userId, totalWeeks, weeklyFrequency, goals } = payload;
+    const primaryGoal = goals[0];
 
     const phaseSchedule = this.resolvePhases(totalWeeks);
-    const targetVolume = this.resolveVolume(payload.goal);
+    const targetVolume = this.resolveVolume(goals);
 
     const splitStructure = this.resolveSplit(
       payload.workoutType,
@@ -78,7 +86,7 @@ export class ProgramOrchestratorService {
         level: payload.experienceLevel,
         equipment: payload.equipment,
         baseContext: {
-          goal: payload.goal,
+          goals: payload.goals,
           phaseType: phaseInfo.phase,
           weekNumber: phaseInfo.weekNumber,
           usedExercisesLastWeeks: [],
@@ -102,7 +110,7 @@ export class ProgramOrchestratorService {
             exercises,
             phase: phaseInfo.phase,
             progressionProfile: progressionMap,
-            goal: payload.goal,
+            goals: payload.goals,
           });
 
         const musclesOfDay = this.extractMusclesFromSlots(slots);
@@ -111,7 +119,7 @@ export class ProgramOrchestratorService {
           dayOrder: dayIndex + 1,
           name: `Semana ${phaseInfo.weekNumber} - Dia ${dayIndex + 1} (${musclesOfDay.join(' e ')})`,
           muscleGroups: musclesOfDay,
-          goals: [payload.goal],
+          goals: payload.goals,
           exercises: prescription,
         });
       }
@@ -132,8 +140,8 @@ export class ProgramOrchestratorService {
     return {
       protocol: {
         id: programId,
-        name: `Protocolo ${payload.totalWeeks} semanas - ${payload.goal.toUpperCase()}`,
-        goal: payload.goal,
+        name: `Protocolo ${payload.totalWeeks} semanas - ${goals.join(' + ').toUpperCase()}`,
+        goal: goals.join(','),
         workoutType: payload.workoutType,
         totalWeeks: payload.totalWeeks,
         weeklyFrequency: payload.weeklyFrequency,
@@ -211,47 +219,59 @@ export class ProgramOrchestratorService {
     )];
   }
 
-  private resolveVolume(goal: string) {
-
-    if (goal === 'hypertrophy') {
-      return {
-        chest: 12,
-        back: 14,
-        shoulders: 10,
-        biceps: 8,
-        triceps: 8,
-        quads: 12,
-        hamstrings: 10,
-        calves: 6,
-        abs: 6,
-      };
-    }
-
-    if (goal === 'strength') {
-      return {
-        chest: 8,
-        back: 10,
-        shoulders: 6,
-        biceps: 6,
-        triceps: 6,
-        quads: 8,
-        hamstrings: 8,
-        calves: 4,
-        abs: 4,
-      };
-    }
-
-    return {
-      chest: 10,
-      back: 12,
-      shoulders: 8,
-      biceps: 8,
-      triceps: 8,
-      quads: 10,
-      hamstrings: 10,
-      calves: 6,
-      abs: 8,
+  private resolveVolume(goals: string[]) {
+    const summedVolume: Record<string, number> = {
+      chest: 0,
+      back: 0,
+      shoulders: 0,
+      biceps: 0,
+      triceps: 0,
+      quads: 0,
+      hamstrings: 0,
+      calves: 0,
+      abs: 0,
     };
+
+    for (const goal of goals) {
+      if (goal === 'hypertrophy') {
+        summedVolume.chest += 12;
+        summedVolume.back += 14;
+        summedVolume.shoulders += 10;
+        summedVolume.biceps += 8;
+        summedVolume.triceps += 8;
+        summedVolume.quads += 12;
+        summedVolume.hamstrings += 10;
+        summedVolume.calves += 6;
+        summedVolume.abs += 6;
+      } else if (goal === 'strength') {
+        summedVolume.chest += 8;
+        summedVolume.back += 10;
+        summedVolume.shoulders += 6;
+        summedVolume.biceps += 6;
+        summedVolume.triceps += 6;
+        summedVolume.quads += 8;
+        summedVolume.hamstrings += 8;
+        summedVolume.calves += 4;
+        summedVolume.abs += 4;
+      } else { // Generic matching endurance/fat_loss
+        summedVolume.chest += 10;
+        summedVolume.back += 12;
+        summedVolume.shoulders += 8;
+        summedVolume.biceps += 8;
+        summedVolume.triceps += 8;
+        summedVolume.quads += 10;
+        summedVolume.hamstrings += 10;
+        summedVolume.calves += 6;
+        summedVolume.abs += 8;
+      }
+    }
+
+    const averagedVolume: Record<string, number> = {};
+    for (const muscle of Object.keys(summedVolume)) {
+      averagedVolume[muscle] = Math.round(summedVolume[muscle] / goals.length);
+    }
+
+    return averagedVolume;
   }
 
   private resolvePhases(totalWeeks: number) {
@@ -327,9 +347,9 @@ export class ProgramOrchestratorService {
     const rpcPayload = {
       programId,
       userId,
-      name: `Protocolo ${payload.totalWeeks} semanas - ${payload.goal.toUpperCase()}`,
+      name: `Protocolo ${payload.totalWeeks} semanas - ${payload.goals.join(' + ').toUpperCase()}`,
       split: payload.workoutType,
-      goal: payload.goal,
+      goal: payload.goals.join(','),
       experienceLevel: payload.experienceLevel,
       totalWeeks: payload.totalWeeks,
       weeklyFrequency: payload.weeklyFrequency,

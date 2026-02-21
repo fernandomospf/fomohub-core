@@ -28,21 +28,22 @@ export class ScoringService {
     exercise: ExerciseCandidate,
     context: ScoringContext,
   ): number {
-    if (context.goal === 'hypertrophy') {
-      return exercise.is_compound ? 2 : 1;
+    let totalScore = 0;
+
+    for (const goal of context.goals) {
+      if (goal === 'hypertrophy') {
+        totalScore += exercise.is_compound ? 2 : 1;
+      } else if (goal === 'strength') {
+        if (exercise.is_compound) totalScore += 3;
+        else if (exercise.fatigue_score <= 3) totalScore += 2;
+      } else if (goal === 'endurance') {
+        totalScore += exercise.stimulus_type === 'metabolic' ? 2 : 1;
+      } else if (goal === 'fat_loss') {
+        totalScore += exercise.stimulus_type === 'metabolic' ? 2 : 1;
+      }
     }
 
-    if (context.goal === 'strength') {
-      if (exercise.is_compound) return 3;
-      if (exercise.fatigue_score <= 3) return 2;
-    }
-
-    if (context.goal === 'endurance') {
-      if (exercise.stimulus_type === 'metabolic') return 2;
-      return 1;
-    }
-
-    return 0;
+    return totalScore / context.goals.length;
   }
 
   private phaseScore(

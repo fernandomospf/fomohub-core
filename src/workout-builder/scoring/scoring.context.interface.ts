@@ -1,5 +1,5 @@
 export interface ScoringContext {
-  goal: 'hypertrophy' | 'strength' | 'endurance';
+  goals: string[];
   phaseType: 'base' | 'intensification' | 'peak' | 'deload';
   weekNumber: number;
 
