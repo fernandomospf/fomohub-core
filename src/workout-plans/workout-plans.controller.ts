@@ -84,6 +84,27 @@ export class WorkoutPlansController {
     summary: 'List public workout plans',
     description: 'Returns all publicly available workout plans from any user, enriched with calorie estimates and like/favorite status.',
   })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Page number',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Number of items per page',
+    example: 10,
+  })
+  @ApiQuery({
+    name: 'offset',
+    required: false,
+    type: Number,
+    description: 'Number of items to skip',
+    example: 0,
+  })
   @ApiResponse({ status: 200, description: 'Public plans retrieved successfully.' })
   async listPublic(
     @Req() req,

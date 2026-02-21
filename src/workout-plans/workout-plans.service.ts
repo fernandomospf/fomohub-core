@@ -73,10 +73,11 @@ export class WorkoutPlansService {
     const supabase = req.supabase;
     const userId = req.user.id;
 
-    const page = pagination.page ?? 1;
     const limit = pagination.limit ?? 10;
+    const offset = pagination.offset ?? ((pagination.page ?? 1) - 1) * limit;
+    const page = pagination.offset !== undefined ? Math.floor(offset / limit) + 1 : (pagination.page ?? 1);
 
-    const from = (page - 1) * limit;
+    const from = offset;
     const to = from + limit - 1;
 
     const { data: lastMeasurement } = await supabase
@@ -106,6 +107,8 @@ export class WorkoutPlansService {
         meta: {
           total: count ?? 0,
           page,
+          limit,
+          offset,
           lastPage: 0,
         },
       };
@@ -170,6 +173,8 @@ export class WorkoutPlansService {
       meta: {
         total: count ?? 0,
         page,
+        limit,
+        offset,
         lastPage: Math.ceil((count ?? 0) / limit),
       },
     };
@@ -182,10 +187,11 @@ export class WorkoutPlansService {
     const supabase = req.supabase;
     const userId = req.user.id;
 
-    const page = pagination.page ?? 1;
     const limit = pagination.limit ?? 10;
+    const offset = pagination.offset ?? ((pagination.page ?? 1) - 1) * limit;
+    const page = pagination.offset !== undefined ? Math.floor(offset / limit) + 1 : (pagination.page ?? 1);
 
-    const from = (page - 1) * limit;
+    const from = offset;
     const to = from + limit - 1;
 
     const { data: favorites, count, error } = await supabase
@@ -203,6 +209,8 @@ export class WorkoutPlansService {
         meta: {
           total: count ?? 0,
           page,
+          limit,
+          offset,
           lastPage: 0,
         },
       };
@@ -226,6 +234,8 @@ export class WorkoutPlansService {
         meta: {
           total: count ?? 0,
           page,
+          limit,
+          offset,
           lastPage: 0,
         },
       };
@@ -290,6 +300,8 @@ export class WorkoutPlansService {
       meta: {
         total: count ?? 0,
         page,
+        limit,
+        offset,
         lastPage: Math.ceil((count ?? 0) / limit),
       },
     };
@@ -302,10 +314,11 @@ export class WorkoutPlansService {
     const supabase = req.supabase;
     const userId = req.user.id;
 
-    const page = pagination.page ?? 1;
     const limit = pagination.limit ?? 10;
+    const offset = pagination.offset ?? ((pagination.page ?? 1) - 1) * limit;
+    const page = pagination.offset !== undefined ? Math.floor(offset / limit) + 1 : (pagination.page ?? 1);
 
-    const from = (page - 1) * limit;
+    const from = offset;
     const to = from + limit - 1;
 
     const { data: likes, count, error: likesError } = await supabase
@@ -323,6 +336,8 @@ export class WorkoutPlansService {
         meta: {
           total: count ?? 0,
           page,
+          limit,
+          offset,
           lastPage: 0,
         },
       };
@@ -346,6 +361,8 @@ export class WorkoutPlansService {
         meta: {
           total: count ?? 0,
           page,
+          limit,
+          offset,
           lastPage: 0,
         },
       };
@@ -411,6 +428,8 @@ export class WorkoutPlansService {
       meta: {
         total: count ?? 0,
         page,
+        limit,
+        offset,
         lastPage: Math.ceil((count ?? 0) / limit),
       },
     };
@@ -420,10 +439,9 @@ export class WorkoutPlansService {
     const supabase = req.supabase;
     const userId = req.user.id;
 
-    const page = pagination.page ?? 1;
     const limit = pagination.limit ?? 10;
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
+    const offset = pagination.offset ?? ((pagination.page ?? 1) - 1) * limit;
+    const page = pagination.offset !== undefined ? Math.floor(offset / limit) + 1 : (pagination.page ?? 1);
 
     const { data: lastMeasurement, error: measurementError } =
       await supabase
@@ -445,7 +463,7 @@ export class WorkoutPlansService {
       .select('*', { count: 'exact' })
       .eq('is_public', true)
       .order('created_at', { ascending: false })
-      .range(from, to);
+      .range(offset, offset + limit - 1);
 
     if (plansError) throw plansError;
     if (!plans?.length) {
@@ -454,6 +472,8 @@ export class WorkoutPlansService {
         meta: {
           total: count ?? 0,
           page,
+          limit,
+          offset,
           lastPage: 0,
         },
       };
@@ -533,6 +553,8 @@ export class WorkoutPlansService {
       meta: {
         total: count ?? 0,
         page,
+        limit,
+        offset,
         lastPage: Math.ceil((count ?? 0) / limit),
       },
     };

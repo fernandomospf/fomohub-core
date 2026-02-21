@@ -14,6 +14,8 @@ export interface WorkoutExercise {
 export interface MetaPagination {
   total: number;
   page: number;
+  limit: number;
+  offset: number;
   lastPage: number;
 }
 
