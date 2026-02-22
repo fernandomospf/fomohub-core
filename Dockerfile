@@ -1,23 +1,25 @@
-# ---------- Stage 1: Build ----------
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 COPY . .
 RUN npm run build
 
-# ---------- Stage 2: Production ----------
+
 FROM node:20-alpine
 
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
+
+RUN addgroup -S app && adduser -S app -G app
+USER app
 
 EXPOSE 3000
 
