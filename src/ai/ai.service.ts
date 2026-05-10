@@ -1,4 +1,12 @@
-import { ForbiddenException, Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  HttpException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { AuthenticateRequest } from 'reqGuard';
 import { WorkoutPlansService } from 'src/workout-plans/workout-plans.service';
@@ -11,16 +19,35 @@ interface GenerateWorkoutInput {
 
 @Injectable()
 export class AiService {
-  private readonly openai: OpenAI;
+  private readonly logger = new Logger(AiService.name);
+  private readonly openai?: OpenAI;
 
-  constructor(private readonly workoutPlansService: WorkoutPlansService,) {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY não definida');
+  constructor(
+    private readonly workoutPlansService: WorkoutPlansService,
+    private readonly configService: ConfigService,
+  ) {
+    const apiKey = this.configService.get<string>('OPENAI_API_KEY')?.trim();
+
+    if (!apiKey) {
+      this.logger.warn(
+        'OPENAI_API_KEY não configurada. As rotas de IA ficarão indisponíveis até a chave ser definida.',
+      );
+      return;
     }
 
     this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
+      apiKey,
     });
+  }
+
+  private getOpenAiClient(): OpenAI {
+    if (!this.openai) {
+      throw new ServiceUnavailableException(
+        'OPENAI_API_KEY não configurada. As rotas de IA estão indisponíveis.',
+      );
+    }
+
+    return this.openai;
   }
 
   async generateWorkout(req: AuthenticateRequest, input: GenerateWorkoutInput) {
@@ -28,6 +55,8 @@ export class AiService {
     const userId = req.user.id;
 
     try {
+      const openai = this.getOpenAiClient();
+
       const { count } = await supabase
         .from('ai_workout_generations')
         .select('*', { count: 'exact', head: true })
@@ -65,7 +94,7 @@ export class AiService {
 
       const weight_kg = measurements.weight_kg;
 
-      const response = await this.openai.chat.completions.create({
+      const response = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         response_format: { type: 'json_object' },
         temperature: 0.6,
@@ -196,8 +225,12 @@ FORMATO:
       return plan;
 
     } catch (error) {
-      console.error('Erro ao gerar treino com IA:', error);
-      throw new InternalServerErrorException('Erro ao gerar treino com IA');
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      this.logger.error('Erro ao gerar treino com IA', error);
+      throw new InternalServerErrorException('Erro ao consultar créditos de IA');
     }
   }
 
@@ -219,7 +252,11 @@ FORMATO:
       return 14 - (count ?? 0);
 
     } catch (error) {
-      console.error('Erro ao gerar treino com IA:', error);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      this.logger.error('Erro ao consultar créditos de IA', error);
       throw new InternalServerErrorException('Erro ao gerar treino com IA');
     }
   }
@@ -229,6 +266,7 @@ FORMATO:
     slots: string[],
     equipment?: string[],
   ) {
+    const openai = this.getOpenAiClient();
 
     const prompt = `
 Gere 10 exercícios de musculação para academia.
@@ -257,7 +295,7 @@ Formato JSON puro:
 ]
 `;
 
-    const response = await this.openai.chat.completions.create({
+    const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       response_format: { type: 'json_object' },
       temperature: 0.7,

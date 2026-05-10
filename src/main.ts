@@ -56,6 +56,7 @@ async function bootstrap() {
   await app.listen(PORT);
 
   console.log(`🚀 API rodando na porta ${PORT}`);
+  console.log(`🔗 Acesse a documentação da API em http://localhost:${PORT}/api/docs`);
 }
 
 bootstrap();
