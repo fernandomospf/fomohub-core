@@ -26,7 +26,6 @@ async function bootstrap() {
     }),
   );
 
-  if (process.env.NODE_ENV !== 'production') {
     const config = new DocumentBuilder()
       .setTitle('FomoHub API')
       .setDescription('Documentação da API do FomoHub')
@@ -51,7 +50,6 @@ async function bootstrap() {
     });
 
     console.log(`📖 Swagger disponível em /api/docs`);
-  }
 
   await app.listen(PORT);
 
