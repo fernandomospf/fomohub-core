@@ -2,8 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { ProgramGeneratorService } from './program-generator.service';
 import { ProgressionEngineService } from '../progression-engine/progression-engine.service';
 import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
 import { PhaseType } from './phases-type.types';
-import { v4 as uuidv4 } from 'uuid';
 import { AdaptiveWorkoutEngine } from 'src/training-engine/adaptive-workout.engine';
 import { ExercisePrescription } from 'src/progression-engine/progression.types';
 
@@ -340,7 +340,7 @@ export class ProgramOrchestratorService {
     payload: any,
   ) {
 
-    const programId = uuidv4();
+    const programId = randomUUID();
 
     const phaseRanges = this.buildPhaseRanges(program);
 
